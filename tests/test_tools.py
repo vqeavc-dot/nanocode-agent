@@ -75,3 +75,27 @@ def test_run_command_executes_simple_command(tmp_path: Path):
     assert result.ok
     assert "Python" in result.content
 
+
+
+def test_list_symbols_finds_python_functions_and_classes(tmp_path: Path):
+    (tmp_path / "module.py").write_text(
+        "class Service:\n    def run(self):\n        return 1\n\ndef helper():\n    return 2\n",
+        encoding="utf-8",
+    )
+    tools = LocalTools(tmp_path)
+
+    result = tools.list_symbols("module.py")
+
+    assert result.ok
+    assert "module.py:1: class Service" in result.content
+    assert "module.py:2: def run" in result.content
+    assert "module.py:5: def helper" in result.content
+
+
+def test_run_command_can_require_user_confirmation(tmp_path: Path):
+    tools = LocalTools(tmp_path, confirm_commands=True, confirmer=lambda command: False)
+
+    result = tools.run_command("python --version")
+
+    assert not result.ok
+    assert "rejected by user confirmation" in result.content

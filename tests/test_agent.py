@@ -26,6 +26,7 @@ def _response(name: str, args: dict[str, Any]):
         "Response",
         (),
         {
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
             "message": {
                 "role": "assistant",
                 "content": None,
@@ -36,7 +37,7 @@ def _response(name: str, args: dict[str, Any]):
                         "function": {"name": name, "arguments": json.dumps(args)},
                     }
                 ],
-            }
+            },
         },
     )()
 
@@ -52,7 +53,6 @@ def test_agent_loop_runs_tools_until_final_answer(tmp_path: Path):
     assert "return 2" in (tmp_path / "app.py").read_text(encoding="utf-8")
 
 
-
 def test_agent_verbose_records_each_tool_event(tmp_path: Path, capsys):
     (tmp_path / "app.py").write_text("def value():\n    return 1\n", encoding="utf-8")
     agent = CodingAgent(model=FakeModel(), tools=LocalTools(tmp_path), max_steps=5, verbose=True)
@@ -64,3 +64,14 @@ def test_agent_verbose_records_each_tool_event(tmp_path: Path, capsys):
     assert "tool_call edit_file" in output
     assert "tool_call run_command" in output
     assert any("observation run_command ok=True" in event for event in result.transcript)
+
+
+def test_agent_aggregates_token_usage(tmp_path: Path):
+    (tmp_path / "app.py").write_text("def value():\n    return 1\n", encoding="utf-8")
+    agent = CodingAgent(model=FakeModel(), tools=LocalTools(tmp_path), max_steps=5)
+
+    result = agent.run("Change value to 2")
+
+    assert result.usage["prompt_tokens"] == 40
+    assert result.usage["completion_tokens"] == 20
+    assert result.usage["total_tokens"] == 60

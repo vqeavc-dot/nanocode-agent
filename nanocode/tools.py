@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import json
 import py_compile
 import subprocess
@@ -31,9 +32,16 @@ class ToolResult:
 
 
 class LocalTools:
-    def __init__(self, workspace: Path):
+    def __init__(
+        self,
+        workspace: Path,
+        confirm_commands: bool = False,
+        confirmer: Callable[[str], bool] | None = None,
+    ):
         self.workspace = workspace.resolve()
         self.sandbox = Sandbox(self.workspace)
+        self.confirm_commands = confirm_commands
+        self.confirmer = confirmer or _confirm_with_stdin
 
     def schemas(self) -> list[dict[str, Any]]:
         return [
@@ -64,6 +72,20 @@ class LocalTools:
                             "limit": {"type": "integer", "default": 30},
                         },
                         "required": ["query"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "list_symbols",
+                    "description": "List Python classes and functions with line numbers for code-structure analysis.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "path": {"type": "string", "default": "."},
+                            "limit": {"type": "integer", "default": 80},
+                        },
                     },
                 },
             },
@@ -147,6 +169,7 @@ class LocalTools:
         table: dict[str, Callable[..., ToolResult]] = {
             "list_files": self.list_files,
             "search_code": self.search_code,
+            "list_symbols": self.list_symbols,
             "view_file": self.view_file,
             "edit_file": self.edit_file,
             "write_file": self.write_file,
@@ -213,6 +236,34 @@ class LocalTools:
                         )
         return ToolResult(True, "\n".join(matches) if matches else "No matches")
 
+    def list_symbols(self, path: str = ".", limit: int = 80) -> ToolResult:
+        root = self.sandbox.resolve_path(path)
+        if not root.exists():
+            return ToolResult(False, f"Path does not exist: {path}")
+
+        files = [root] if root.is_file() else [p for p in root.rglob("*.py") if p.is_file()]
+        symbols: list[str] = []
+        for file_path in files:
+            if self._should_skip(file_path) or file_path.suffix != ".py":
+                continue
+            try:
+                tree = ast.parse(file_path.read_text(encoding="utf-8"))
+            except (SyntaxError, UnicodeDecodeError) as exc:
+                rel = file_path.relative_to(self.workspace).as_posix()
+                symbols.append(f"{rel}: parse_error: {exc}")
+                continue
+            rel = file_path.relative_to(self.workspace).as_posix()
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ClassDef):
+                    symbols.append(f"{rel}:{node.lineno}: class {node.name}")
+                elif isinstance(node, ast.AsyncFunctionDef):
+                    symbols.append(f"{rel}:{node.lineno}: async def {node.name}")
+                elif isinstance(node, ast.FunctionDef):
+                    symbols.append(f"{rel}:{node.lineno}: def {node.name}")
+                if len(symbols) >= limit:
+                    return ToolResult(True, "\n".join(symbols) + "\n... symbol limit reached")
+        return ToolResult(True, "\n".join(symbols) if symbols else "No Python symbols found")
+
     def view_file(self, path: str, start_line: int = 1, limit: int = 100) -> ToolResult:
         target = self.sandbox.resolve_path(path)
         if not target.exists():
@@ -261,6 +312,8 @@ class LocalTools:
 
     def run_command(self, command: str, timeout: int = 20) -> ToolResult:
         assert_command_safe(command)
+        if self.confirm_commands and not self.confirmer(command):
+            return ToolResult(False, f"Command rejected by user confirmation: {command}")
         bounded_timeout = min(max(1, timeout), 60)
         completed = subprocess.run(
             command,
@@ -300,13 +353,12 @@ class LocalTools:
         return bool(parts & {".git", ".venv", "__pycache__", ".pytest_cache"})
 
 
+def _confirm_with_stdin(command: str) -> bool:
+    answer = input(f"Allow command? {command} [y/N] ").strip().lower()
+    return answer in {"y", "yes"}
+
+
 def _truncate(text: str, limit: int = MAX_OUTPUT_CHARS) -> str:
     if len(text) <= limit:
         return text
     return text[:limit] + "\n... output truncated"
-
-
-
-
-
-

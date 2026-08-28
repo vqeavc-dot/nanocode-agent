@@ -34,9 +34,9 @@ pytest
 - Planning: the model decides the next tool call after each observation.
 - Memory: the agent keeps recent observations intact and summarizes older ones.
 - Perception: tools expose repository state through concise search results, file windows, and command output.
-- Action: local tools read, write, edit, and execute commands inside a sandboxed workspace.
+- Action: local tools read, write, edit, inspect Python symbols, and execute commands inside a sandboxed workspace.
 
 ## Safety
 
-NanoCode restricts file access to the configured workspace, blocks risky shell commands, truncates long outputs, limits the number of agent steps, and runs Python syntax checks after editing `.py` files.
+NanoCode restricts file access to the configured workspace, blocks risky shell commands, optionally asks for confirmation before shell execution, truncates long outputs, limits the number of agent steps, and runs Python syntax checks after editing `.py` files. It also retries transient model API failures, reports token usage when the provider returns it, and prints a git diff summary after each run.
 

@@ -20,6 +20,7 @@ class AgentResult:
     steps: int
     stopped_by_limit: bool = False
     transcript: list[str] = field(default_factory=list)
+    usage: dict[str, int] = field(default_factory=dict)
 
 
 class CodingAgent:
@@ -38,6 +39,7 @@ class CodingAgent:
         self.memory = memory or Memory()
         self.verbose = verbose
         self.event_sink = event_sink
+        self.usage: dict[str, int] = {}
 
     def run(self, task: str) -> AgentResult:
         base_messages: list[dict[str, Any]] = [
@@ -50,6 +52,7 @@ class CodingAgent:
             self._record(transcript, f"[step {step}] planning next action")
             messages = [*base_messages, *self.memory.as_messages()]
             response = self.model.chat(messages, self.tools.schemas())
+            self._add_usage(getattr(response, "usage", None))
             message = response.message
             content = message.get("content")
             if content:
@@ -59,7 +62,7 @@ class CodingAgent:
             if not tool_calls:
                 final = content or "Model stopped without a final answer."
                 self._record(transcript, f"[final] {final}")
-                return AgentResult(final=final, steps=step, transcript=transcript)
+                return AgentResult(final=final, steps=step, transcript=transcript, usage=dict(self.usage))
 
             for tool_call in tool_calls:
                 function = tool_call.get("function", {})
@@ -78,7 +81,7 @@ class CodingAgent:
                 self.memory.add(name, result.to_json(), ok=result.ok)
                 self._record(transcript, f"[step {step}] observation {name} ok={result.ok}: {_truncate_text(result.content)}")
                 if name == "final_answer" and result.ok:
-                    return AgentResult(final=result.content, steps=step, transcript=transcript)
+                    return AgentResult(final=result.content, steps=step, transcript=transcript, usage=dict(self.usage))
 
         final = f"Stopped after reaching max_steps={self.max_steps}."
         self._record(transcript, f"[limit] {final}")
@@ -87,6 +90,7 @@ class CodingAgent:
             steps=self.max_steps,
             stopped_by_limit=True,
             transcript=transcript,
+            usage=dict(self.usage),
         )
 
     def _record(self, transcript: list[str], event: str) -> None:
@@ -95,6 +99,13 @@ class CodingAgent:
             print(event)
         if self.event_sink is not None:
             self.event_sink(event)
+
+    def _add_usage(self, usage: dict[str, Any] | None) -> None:
+        if not usage:
+            return
+        for key, value in usage.items():
+            if isinstance(value, int):
+                self.usage[key] = self.usage.get(key, 0) + value
 
 
 def _safe_json(value: dict[str, Any], limit: int = 500) -> str:
