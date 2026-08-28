@@ -20,10 +20,10 @@ Edit `.env` and set your API key and model.
 Run a task:
 
 ```powershell
-nanocode "Add divide() to examples/calculator and run tests"
+nanocode "Add divide() to examples/calculator and run tests" --verbose
 ```
 
-Run tests:
+Each run writes a Markdown trace to `run_logs/` by default. Use `--no-log` to disable log files. Run tests:
 
 ```powershell
 pytest

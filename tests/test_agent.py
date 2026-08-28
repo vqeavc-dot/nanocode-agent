@@ -51,3 +51,16 @@ def test_agent_loop_runs_tools_until_final_answer(tmp_path: Path):
     assert result.final == "Changed value to 2 and syntax check passed."
     assert "return 2" in (tmp_path / "app.py").read_text(encoding="utf-8")
 
+
+
+def test_agent_verbose_records_each_tool_event(tmp_path: Path, capsys):
+    (tmp_path / "app.py").write_text("def value():\n    return 1\n", encoding="utf-8")
+    agent = CodingAgent(model=FakeModel(), tools=LocalTools(tmp_path), max_steps=5, verbose=True)
+
+    result = agent.run("Change value to 2")
+    output = capsys.readouterr().out
+
+    assert "tool_call view_file" in output
+    assert "tool_call edit_file" in output
+    assert "tool_call run_command" in output
+    assert any("observation run_command ok=True" in event for event in result.transcript)
