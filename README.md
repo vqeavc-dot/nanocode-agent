@@ -29,6 +29,16 @@ Each run writes a Markdown trace to `run_logs/` by default. Use `--no-log` to di
 pytest
 ```
 
+
+## Web UI
+
+NanoCode also includes a small local web UI for demonstrations:
+
+```powershell
+nanocode-ui
+```
+
+Open `http://127.0.0.1:8765` to submit a task and inspect the step timeline, tool calls, observations, token usage, run log path, and git diff summary. The UI is only a presentation layer; the same local agent loop and tools do the work.
 ## Core Design
 
 - Planning: the model decides the next tool call after each observation.

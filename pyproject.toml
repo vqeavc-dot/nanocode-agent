@@ -20,6 +20,7 @@ dev = [
 
 [project.scripts]
 nanocode = "nanocode.cli:main"
+nanocode-ui = "nanocode.ui:main"
 
 [tool.setuptools.packages.find]
 include = ["nanocode*"]
