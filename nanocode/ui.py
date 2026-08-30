@@ -59,7 +59,7 @@ HTML = """<!doctype html>
       <textarea id="task">Please inspect examples/calculator, explain whether divide(a, b) and its pytest tests exist, and run the relevant tests.</textarea>
       <div class="row">
         <label>Max steps <input id="maxSteps" type="number" min="1" max="40" value="12"></label>
-        <label><input id="confirmActions" type="checkbox"> Confirm shell commands</label>
+
       </div>
       <div class="row"><button id="runBtn">Run Agent</button></div>
       <p class="hint">The UI is only a display layer. The same handwritten agent loop and local tools execute underneath.</p>
@@ -121,7 +121,7 @@ runBtn.addEventListener('click', async () => {
       body: JSON.stringify({
         task: document.getElementById('task').value,
         max_steps: Number(document.getElementById('maxSteps').value || 12),
-        confirm_actions: document.getElementById('confirmActions').checked
+        confirm_actions: false
       })
     });
     const data = await response.json();
