@@ -44,7 +44,7 @@ Open `http://127.0.0.1:8765` to submit a task and inspect the step timeline, too
 - Planning: the model decides the next tool call after each observation.
 - Memory: the agent keeps recent observations intact and summarizes older ones.
 - Perception: tools expose repository state through repo maps, concise search results, file windows, and command output.
-- Action: local tools read, write, edit, inspect Python symbols, and execute commands inside a sandboxed workspace.
+- Action: local tools read, write, edit with exact replacement or single-file unified diffs, inspect Python symbols, and execute commands inside a sandboxed workspace.
 
 ## Safety
 

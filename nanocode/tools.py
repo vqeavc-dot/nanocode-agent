@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import json
 import py_compile
+import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,6 +14,7 @@ from .sandbox import Sandbox, SandboxError, assert_command_safe
 
 
 MAX_OUTPUT_CHARS = 6000
+HUNK_HEADER_RE = re.compile(r"@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@")
 
 
 class ToolExecutionError(RuntimeError):
@@ -152,6 +154,20 @@ class LocalTools:
                 },
             },
             {
+                "type": "function",
+                "function": {
+                    "name": "apply_patch_file",
+                    "description": "Apply a single-file unified diff patch with context validation and rollback.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "path": {"type": "string"},
+                            "patch": {"type": "string"},
+                        },
+                        "required": ["path", "patch"],
+                    },
+                },
+            },            {
                 "type": "function",
                 "function": {
                     "name": "run_command",
@@ -336,6 +352,26 @@ class LocalTools:
             return ToolResult(False, str(exc))
         return ToolResult(True, f"Wrote {len(content)} characters to {Path(path).as_posix()}")
 
+    def apply_patch_file(self, path: str, patch: str) -> ToolResult:
+        target = self.sandbox.resolve_path(path)
+        if not target.exists():
+            return ToolResult(False, f"File does not exist: {path}")
+        if not target.is_file():
+            return ToolResult(False, f"Path is not a file: {path}")
+
+        original = target.read_text(encoding="utf-8")
+        try:
+            updated = _apply_unified_patch(original, patch)
+        except ToolExecutionError as exc:
+            return ToolResult(False, str(exc))
+        if updated == original:
+            return ToolResult(False, "Patch made no changes")
+
+        try:
+            self._write_checked(target, updated)
+        except ToolExecutionError as exc:
+            return ToolResult(False, str(exc))
+        return ToolResult(True, f"Applied patch to {Path(path).as_posix()}\n\n{self.view_file(path, 1, 80).content}")
     def run_command(self, command: str, timeout: int = 20) -> ToolResult:
         assert_command_safe(command)
         if self.confirm_commands and not self.confirmer(command):
@@ -388,3 +424,71 @@ def _truncate(text: str, limit: int = MAX_OUTPUT_CHARS) -> str:
     if len(text) <= limit:
         return text
     return text[:limit] + "\n... output truncated"
+
+
+def _apply_unified_patch(original: str, patch: str) -> str:
+    original_lines = original.splitlines(keepends=True)
+    patch_lines = patch.splitlines(keepends=True)
+    output: list[str] = []
+    original_index = 0
+    patch_index = 0
+    saw_hunk = False
+
+    while patch_index < len(patch_lines):
+        line = patch_lines[patch_index]
+        if line.startswith("--- ") or line.startswith("+++ "):
+            patch_index += 1
+            continue
+        match = HUNK_HEADER_RE.match(line)
+        if not match:
+            patch_index += 1
+            continue
+
+        saw_hunk = True
+        old_start = int(match.group(1))
+        hunk_original_index = old_start - 1
+        if hunk_original_index < original_index or hunk_original_index > len(original_lines):
+            raise ToolExecutionError("Patch hunk line range is invalid")
+        output.extend(original_lines[original_index:hunk_original_index])
+        original_index = hunk_original_index
+        patch_index += 1
+
+        while patch_index < len(patch_lines):
+            hunk_line = patch_lines[patch_index]
+            if HUNK_HEADER_RE.match(hunk_line):
+                break
+            if hunk_line.startswith("\\ No newline at end of file"):
+                patch_index += 1
+                continue
+            if not hunk_line:
+                raise ToolExecutionError("Patch contains an empty hunk line without a prefix")
+            prefix = hunk_line[0]
+            content = hunk_line[1:]
+            if prefix == " ":
+                _require_original_line(original_lines, original_index, content)
+                output.append(original_lines[original_index])
+                original_index += 1
+            elif prefix == "-":
+                _require_original_line(original_lines, original_index, content)
+                original_index += 1
+            elif prefix == "+":
+                output.append(content)
+            else:
+                raise ToolExecutionError(f"Unsupported patch line prefix: {prefix!r}")
+            patch_index += 1
+
+    if not saw_hunk:
+        raise ToolExecutionError("Patch does not contain a unified diff hunk")
+    output.extend(original_lines[original_index:])
+    return "".join(output)
+
+
+def _require_original_line(lines: list[str], index: int, expected: str) -> None:
+    if index >= len(lines):
+        raise ToolExecutionError("Patch context extends past end of file")
+    actual = lines[index]
+    if actual != expected:
+        raise ToolExecutionError(
+            "Patch context mismatch: "
+            f"expected {expected.rstrip()!r}, found {actual.rstrip()!r}"
+        )

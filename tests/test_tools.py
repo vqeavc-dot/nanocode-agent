@@ -112,3 +112,60 @@ def test_repo_map_tool_returns_compact_structure(tmp_path: Path):
     assert "app.py" in result.content
     assert "imports: os" in result.content
     assert "def main" in result.content
+
+
+def test_apply_patch_file_applies_unified_diff(tmp_path: Path):
+    path = tmp_path / "app.py"
+    path.write_text("def value():\n    return 1\n", encoding="utf-8")
+    tools = LocalTools(tmp_path)
+    patch = """--- a/app.py
++++ b/app.py
+@@ -1,2 +1,2 @@
+ def value():
+-    return 1
++    return 2
+"""
+
+    result = tools.apply_patch_file("app.py", patch)
+
+    assert result.ok
+    assert "return 2" in path.read_text(encoding="utf-8")
+    assert "Applied patch" in result.content
+
+
+def test_apply_patch_file_rejects_context_mismatch(tmp_path: Path):
+    path = tmp_path / "app.py"
+    path.write_text("def value():\n    return 1\n", encoding="utf-8")
+    tools = LocalTools(tmp_path)
+    patch = """--- a/app.py
++++ b/app.py
+@@ -1,2 +1,2 @@
+ def missing():
+-    return 1
++    return 2
+"""
+
+    result = tools.apply_patch_file("app.py", patch)
+
+    assert not result.ok
+    assert "context mismatch" in result.content
+    assert path.read_text(encoding="utf-8") == "def value():\n    return 1\n"
+
+
+def test_apply_patch_file_rolls_back_invalid_python(tmp_path: Path):
+    path = tmp_path / "app.py"
+    path.write_text("def value():\n    return 1\n", encoding="utf-8")
+    tools = LocalTools(tmp_path)
+    patch = """--- a/app.py
++++ b/app.py
+@@ -1,2 +1,2 @@
+ def value():
+-    return 1
++    return (
+"""
+
+    result = tools.apply_patch_file("app.py", patch)
+
+    assert not result.ok
+    assert "syntax check failed" in result.content
+    assert path.read_text(encoding="utf-8") == "def value():\n    return 1\n"
