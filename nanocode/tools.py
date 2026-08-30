@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from .repo_map import RepoMap
 from .sandbox import Sandbox, SandboxError, assert_command_safe
 
 
@@ -90,6 +91,20 @@ class LocalTools:
                 },
             },
             {
+                "type": "function",
+                "function": {
+                    "name": "repo_map",
+                    "description": "Build a compact repository map with files, imports, classes, and functions before opening specific files.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "path": {"type": "string", "default": "."},
+                            "max_files": {"type": "integer", "default": 80},
+                            "max_chars": {"type": "integer", "default": 10000},
+                        },
+                    },
+                },
+            },            {
                 "type": "function",
                 "function": {
                     "name": "view_file",
@@ -264,6 +279,17 @@ class LocalTools:
                     return ToolResult(True, "\n".join(symbols) + "\n... symbol limit reached")
         return ToolResult(True, "\n".join(symbols) if symbols else "No Python symbols found")
 
+    def repo_map(self, path: str = ".", max_files: int = 80, max_chars: int = 10000) -> ToolResult:
+        repo_map = RepoMap(
+            root=self.workspace,
+            max_files=max(1, min(max_files, 200)),
+            max_chars=max(1000, min(max_chars, 30000)),
+        )
+        try:
+            content = repo_map.build(path)
+        except ValueError as exc:
+            return ToolResult(False, str(exc))
+        return ToolResult(True, content)
     def view_file(self, path: str, start_line: int = 1, limit: int = 100) -> ToolResult:
         target = self.sandbox.resolve_path(path)
         if not target.exists():

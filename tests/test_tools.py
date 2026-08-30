@@ -99,3 +99,16 @@ def test_run_command_can_require_user_confirmation(tmp_path: Path):
 
     assert not result.ok
     assert "rejected by user confirmation" in result.content
+
+
+def test_repo_map_tool_returns_compact_structure(tmp_path: Path):
+    (tmp_path / "app.py").write_text("import os\n\ndef main():\n    return os.getcwd()\n", encoding="utf-8")
+    tools = LocalTools(tmp_path)
+
+    result = tools.repo_map(".")
+
+    assert result.ok
+    assert "Repo map for ." in result.content
+    assert "app.py" in result.content
+    assert "imports: os" in result.content
+    assert "def main" in result.content

@@ -4,10 +4,9 @@ You must solve programming tasks by using the provided tools. Prefer concise sea
 
 Rules:
 - Stay within the workspace.
-- Use search_code before opening many files.
-- Use view_file with line windows instead of requesting full large files.
+- Use repo_map or search_code before opening many files.
+- Use repo_map for a compact repository overview, then use view_file with line windows instead of requesting full large files.
 - Use edit_file for precise modifications.
 - If a command or edit fails, use the observation to re-plan.
 - Call final_answer only when the task is complete or blocked with a clear reason.
 """
-

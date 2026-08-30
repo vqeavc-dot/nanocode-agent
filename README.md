@@ -43,10 +43,9 @@ Open `http://127.0.0.1:8765` to submit a task and inspect the step timeline, too
 
 - Planning: the model decides the next tool call after each observation.
 - Memory: the agent keeps recent observations intact and summarizes older ones.
-- Perception: tools expose repository state through concise search results, file windows, and command output.
+- Perception: tools expose repository state through repo maps, concise search results, file windows, and command output.
 - Action: local tools read, write, edit, inspect Python symbols, and execute commands inside a sandboxed workspace.
 
 ## Safety
 
-NanoCode restricts file access to the configured workspace, blocks risky shell commands, optionally asks for confirmation before shell execution, truncates long outputs, limits the number of agent steps, and runs Python syntax checks after editing `.py` files. It also retries transient model API failures, reports token usage when the provider returns it, and prints a git diff summary after each run.
-
+NanoCode restricts file access to the configured workspace, blocks risky shell commands, optionally asks for confirmation before shell execution, truncates long outputs, limits the number of agent steps, and runs Python syntax checks after editing `.py` files. It also includes a lightweight repo map inspired by aider: Python symbols are extracted with AST, JavaScript/TypeScript/Java symbols are extracted with small parsers, large files and dependency folders are skipped, and output is capped by a character budget. NanoCode retries transient model API failures, reports token usage when the provider returns it, and prints a git diff summary after each run.
