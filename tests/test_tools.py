@@ -169,3 +169,42 @@ def test_apply_patch_file_rolls_back_invalid_python(tmp_path: Path):
     assert not result.ok
     assert "syntax check failed" in result.content
     assert path.read_text(encoding="utf-8") == "def value():\n    return 1\n"
+
+
+def test_run_dispatch_includes_repo_map_and_patch(tmp_path: Path):
+    (tmp_path / "app.py").write_text("def value():\n    return 1\n", encoding="utf-8")
+    tools = LocalTools(tmp_path)
+
+    repo_result = tools.run("repo_map", {"path": "."})
+    patch_result = tools.run(
+        "apply_patch_file",
+        {
+            "path": "app.py",
+            "patch": "--- a/app.py\n+++ b/app.py\n@@ -1,2 +1,2 @@\n def value():\n-    return 1\n+    return 3\n",
+        },
+    )
+
+    assert repo_result.ok
+    assert patch_result.ok
+    assert "return 3" in (tmp_path / "app.py").read_text(encoding="utf-8")
+
+
+def test_search_code_ranks_filename_and_symbol_matches(tmp_path: Path):
+    (tmp_path / "plain.py").write_text("value = 'target'\n", encoding="utf-8")
+    (tmp_path / "target_service.py").write_text("def target():\n    return 1\n", encoding="utf-8")
+    tools = LocalTools(tmp_path)
+
+    result = tools.search_code("target")
+
+    assert result.ok
+    assert result.content.splitlines()[0].startswith("target_service.py:1")
+
+
+def test_search_code_limits_matches_per_file(tmp_path: Path):
+    (tmp_path / "many.py").write_text("\n".join("target" for _ in range(20)), encoding="utf-8")
+    tools = LocalTools(tmp_path)
+
+    result = tools.search_code("target", limit=20)
+
+    assert result.ok
+    assert result.content.count("many.py") == 5

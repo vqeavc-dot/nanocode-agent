@@ -9,11 +9,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from .repo_map import RepoMap
+from .repo_map import DEFAULT_IGNORE_DIRS, RepoMap
 from .sandbox import Sandbox, SandboxError, assert_command_safe
 
 
 MAX_OUTPUT_CHARS = 6000
+MAX_SEARCH_FILE_BYTES = 200_000
+MAX_MATCHES_PER_FILE = 5
 HUNK_HEADER_RE = re.compile(r"@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@")
 
 
@@ -34,6 +36,17 @@ class ToolResult:
         )
 
 
+@dataclass
+class SearchMatch:
+    path: str
+    line_no: int
+    line: str
+    score: int
+
+    def render(self) -> str:
+        return f"{self.path}:{self.line_no}: {self.line.strip()[:160]}"
+
+
 class LocalTools:
     def __init__(
         self,
@@ -48,152 +61,16 @@ class LocalTools:
 
     def schemas(self) -> list[dict[str, Any]]:
         return [
-            {
-                "type": "function",
-                "function": {
-                    "name": "list_files",
-                    "description": "List files and directories in a workspace path.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "path": {"type": "string", "default": "."},
-                            "limit": {"type": "integer", "default": 80},
-                        },
-                    },
-                },
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "search_code",
-                    "description": "Search text in workspace files and return concise matches.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "query": {"type": "string"},
-                            "path": {"type": "string", "default": "."},
-                            "limit": {"type": "integer", "default": 30},
-                        },
-                        "required": ["query"],
-                    },
-                },
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "list_symbols",
-                    "description": "List Python classes and functions with line numbers for code-structure analysis.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "path": {"type": "string", "default": "."},
-                            "limit": {"type": "integer", "default": 80},
-                        },
-                    },
-                },
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "repo_map",
-                    "description": "Build a compact repository map with files, imports, classes, and functions before opening specific files.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "path": {"type": "string", "default": "."},
-                            "max_files": {"type": "integer", "default": 80},
-                            "max_chars": {"type": "integer", "default": 10000},
-                        },
-                    },
-                },
-            },            {
-                "type": "function",
-                "function": {
-                    "name": "view_file",
-                    "description": "View a numbered line window from a file.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "path": {"type": "string"},
-                            "start_line": {"type": "integer", "default": 1},
-                            "limit": {"type": "integer", "default": 100},
-                        },
-                        "required": ["path"],
-                    },
-                },
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "edit_file",
-                    "description": "Replace exactly one old_text occurrence in a file.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "path": {"type": "string"},
-                            "old_text": {"type": "string"},
-                            "new_text": {"type": "string"},
-                        },
-                        "required": ["path", "old_text", "new_text"],
-                    },
-                },
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "write_file",
-                    "description": "Create or overwrite a workspace file.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "path": {"type": "string"},
-                            "content": {"type": "string"},
-                        },
-                        "required": ["path", "content"],
-                    },
-                },
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "apply_patch_file",
-                    "description": "Apply a single-file unified diff patch with context validation and rollback.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "path": {"type": "string"},
-                            "patch": {"type": "string"},
-                        },
-                        "required": ["path", "patch"],
-                    },
-                },
-            },            {
-                "type": "function",
-                "function": {
-                    "name": "run_command",
-                    "description": "Run a safe shell command in the workspace.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "command": {"type": "string"},
-                            "timeout": {"type": "integer", "default": 20},
-                        },
-                        "required": ["command"],
-                    },
-                },
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "final_answer",
-                    "description": "Finish the task with a concise summary.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {"summary": {"type": "string"}},
-                        "required": ["summary"],
-                    },
-                },
-            },
+            _schema("list_files", "List files and directories in a workspace path.", {"path": "string", "limit": "integer"}),
+            _schema("search_code", "Search text in workspace files and return ranked concise matches.", {"query": "string", "path": "string", "limit": "integer"}, ["query"]),
+            _schema("list_symbols", "List Python classes and functions with line numbers for code-structure analysis.", {"path": "string", "limit": "integer"}),
+            _schema("repo_map", "Build a compact repository map with imports, symbols, references, and dependency scores.", {"path": "string", "max_files": "integer", "max_chars": "integer"}),
+            _schema("view_file", "View a numbered line window from a file.", {"path": "string", "start_line": "integer", "limit": "integer"}, ["path"]),
+            _schema("edit_file", "Replace exactly one old_text occurrence in a file.", {"path": "string", "old_text": "string", "new_text": "string"}, ["path", "old_text", "new_text"]),
+            _schema("write_file", "Create or overwrite a workspace file.", {"path": "string", "content": "string"}, ["path", "content"]),
+            _schema("apply_patch_file", "Apply a single-file unified diff patch with context validation and rollback.", {"path": "string", "patch": "string"}, ["path", "patch"]),
+            _schema("run_command", "Run a safe shell command in the workspace.", {"command": "string", "timeout": "integer"}, ["command"]),
+            _schema("final_answer", "Finish the task with a concise summary.", {"summary": "string"}, ["summary"]),
         ]
 
     def run(self, name: str, arguments: dict[str, Any]) -> ToolResult:
@@ -201,9 +78,11 @@ class LocalTools:
             "list_files": self.list_files,
             "search_code": self.search_code,
             "list_symbols": self.list_symbols,
+            "repo_map": self.repo_map,
             "view_file": self.view_file,
             "edit_file": self.edit_file,
             "write_file": self.write_file,
+            "apply_patch_file": self.apply_patch_file,
             "run_command": self.run_command,
             "final_answer": self.final_answer,
         }
@@ -246,26 +125,14 @@ class LocalTools:
         if not root.exists():
             return ToolResult(False, f"Path does not exist: {path}")
 
-        matches: list[str] = []
-        files = [root] if root.is_file() else [p for p in root.rglob("*") if p.is_file()]
-        for file_path in files:
-            if self._should_skip(file_path):
-                continue
-            try:
-                lines = file_path.read_text(encoding="utf-8").splitlines()
-            except UnicodeDecodeError:
-                continue
-            for idx, line in enumerate(lines, start=1):
-                if query in line:
-                    rel = file_path.relative_to(self.workspace).as_posix()
-                    matches.append(f"{rel}:{idx}: {line.strip()[:160]}")
-                    if len(matches) >= limit:
-                        return ToolResult(
-                            True,
-                            "\n".join(matches)
-                            + "\n... result limit reached; narrow the search if needed",
-                        )
-        return ToolResult(True, "\n".join(matches) if matches else "No matches")
+        matches = sorted(_collect_search_matches(root, self.workspace, query), key=lambda m: (-m.score, m.path, m.line_no))
+        shown = matches[: max(1, limit)]
+        if not shown:
+            return ToolResult(True, "No matches")
+        lines = [match.render() for match in shown]
+        if len(matches) > len(shown):
+            lines.append(f"... {len(matches) - len(shown)} more ranked matches not shown; narrow the search if needed")
+        return ToolResult(True, "\n".join(lines), {"total_matches": len(matches)})
 
     def list_symbols(self, path: str = ".", limit: int = 80) -> ToolResult:
         root = self.sandbox.resolve_path(path)
@@ -306,6 +173,7 @@ class LocalTools:
         except ValueError as exc:
             return ToolResult(False, str(exc))
         return ToolResult(True, content)
+
     def view_file(self, path: str, start_line: int = 1, limit: int = 100) -> ToolResult:
         target = self.sandbox.resolve_path(path)
         if not target.exists():
@@ -372,6 +240,7 @@ class LocalTools:
         except ToolExecutionError as exc:
             return ToolResult(False, str(exc))
         return ToolResult(True, f"Applied patch to {Path(path).as_posix()}\n\n{self.view_file(path, 1, 80).content}")
+
     def run_command(self, command: str, timeout: int = 20) -> ToolResult:
         assert_command_safe(command)
         if self.confirm_commands and not self.confirmer(command):
@@ -412,7 +281,78 @@ class LocalTools:
 
     def _should_skip(self, path: Path) -> bool:
         parts = set(path.relative_to(self.workspace).parts)
-        return bool(parts & {".git", ".venv", "__pycache__", ".pytest_cache"})
+        return bool(parts & DEFAULT_IGNORE_DIRS)
+
+
+def _schema(name: str, description: str, properties: dict[str, str], required: list[str] | None = None) -> dict[str, Any]:
+    return {
+        "type": "function",
+        "function": {
+            "name": name,
+            "description": description,
+            "parameters": {
+                "type": "object",
+                "properties": {key: {"type": value} for key, value in properties.items()},
+                "required": required or [],
+            },
+        },
+    }
+
+
+def _collect_search_matches(root: Path, workspace: Path, query: str) -> list[SearchMatch]:
+    lowered_query = query.lower()
+    files = [root] if root.is_file() else [p for p in root.rglob("*") if p.is_file()]
+    matches: list[SearchMatch] = []
+    per_file_counts: dict[str, int] = {}
+    for file_path in files:
+        if _should_skip_path(file_path, workspace) or _too_large(file_path):
+            continue
+        try:
+            lines = file_path.read_text(encoding="utf-8").splitlines()
+        except UnicodeDecodeError:
+            continue
+        rel = file_path.relative_to(workspace).as_posix()
+        for idx, line in enumerate(lines, start=1):
+            if lowered_query not in line.lower():
+                continue
+            if per_file_counts.get(rel, 0) >= MAX_MATCHES_PER_FILE:
+                continue
+            per_file_counts[rel] = per_file_counts.get(rel, 0) + 1
+            matches.append(SearchMatch(rel, idx, line, _score_search_match(rel, line, lowered_query)))
+    return matches
+
+
+def _score_search_match(path: str, line: str, lowered_query: str) -> int:
+    lowered_path = path.lower()
+    lowered_line = line.lower()
+    score = 0
+    if lowered_query in Path(path).name.lower():
+        score += 60
+    if re.search(r"\b(class|def|function|interface|enum)\b", lowered_line):
+        score += 35
+    if re.search(r"\b(import|from|require)\b", lowered_line):
+        score += 15
+    if "test" in lowered_path or "spec" in lowered_path:
+        score += 10
+    if "/src/" in f"/{lowered_path}" or lowered_path.startswith("src/"):
+        score += 5
+    score += max(0, 20 - len(line.strip()) // 20)
+    return score
+
+
+def _should_skip_path(path: Path, workspace: Path) -> bool:
+    try:
+        parts = set(path.relative_to(workspace).parts)
+    except ValueError:
+        return True
+    return bool(parts & DEFAULT_IGNORE_DIRS)
+
+
+def _too_large(path: Path) -> bool:
+    try:
+        return path.stat().st_size > MAX_SEARCH_FILE_BYTES
+    except OSError:
+        return True
 
 
 def _confirm_with_stdin(command: str) -> bool:

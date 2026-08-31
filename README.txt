@@ -4,4 +4,4 @@ NanoCode Agent 是一个轻量级编程智能体，目标是实现简化版 Clau
 
 运行方式：安装 Python 3.10+，执行 pip install -e ".[dev]"，复制 .env.example 为 .env，填写 NANOCODE_API_KEY、NANOCODE_BASE_URL、NANOCODE_MODEL。之后运行 nanocode "你的编程任务" --verbose。测试执行 python -m pytest。
 
-特色功能：参考 ReAct 和 SWE-agent 的 Agent-Computer Interface 思想，支持代码搜索、窗口式文件查看、Python 符号分析、精确编辑、文件写入和命令执行。系统通过工作目录沙箱、危险命令拦截、可选命令确认、命令超时、输出截断、最大循环步数和 Python 语法检查降低风险。运行时展示每一步并保存 run_logs，结束后输出 token 用量和 git diff 摘要。内置 calculator 示例，可演示 Agent 自主读代码、改代码、补测试并运行 pytest 的完整闭环。
+特色功能：参考 ReAct、SWE-agent ACI 和 aider RepoMap 思想，支持 ranked repo map、代码搜索、窗口式文件查看、Python/JS/TS/Java 符号分析、精确编辑、单文件 unified diff patch、文件写入和命令执行。系统通过工作目录沙箱、危险命令拦截、可选命令确认、命令超时、输出截断、最大循环步数和 Python 语法检查降低风险。运行时展示每一步并保存 run_logs，结束后输出 token 用量和 git diff 摘要；可选 --auto-commit 在观察到成功测试后提交改动。

@@ -13,39 +13,44 @@ from .llm import OpenAICompatibleLLM
 from .tools import LocalTools
 
 
-HTML = """<!doctype html>
+HTML = r"""<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>NanoCode Agent UI</title>
   <style>
-    :root { color-scheme: light; --ink:#172033; --muted:#667085; --line:#d8dee9; --panel:#f7f9fc; --accent:#1f7a5a; --warn:#9a3412; --bad:#b42318; }
+    :root { color-scheme: light; --ink:#182230; --muted:#667085; --line:#d0d5dd; --panel:#f8fafc; --soft:#eef4ff; --accent:#1570ef; --ok:#067647; --bad:#b42318; --violet:#6941c6; }
     * { box-sizing: border-box; }
     body { margin: 0; font-family: "Segoe UI", Arial, sans-serif; color: var(--ink); background: #ffffff; }
-    header { padding: 16px 24px; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-    h1 { margin: 0; font-size: 22px; font-weight: 700; }
-    main { display: grid; grid-template-columns: minmax(260px, 360px) minmax(0, 1fr) minmax(280px, 380px); min-height: calc(100vh - 66px); }
-    section { padding: 18px; border-right: 1px solid var(--line); overflow: auto; }
+    header { padding: 14px 22px; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+    h1 { margin: 0; font-size: 22px; font-weight: 750; }
+    h2 { margin: 0 0 12px; font-size: 16px; }
+    main { display: grid; grid-template-columns: minmax(280px, 360px) minmax(0, 1fr) minmax(300px, 400px); min-height: calc(100vh - 62px); }
+    section { padding: 16px; border-right: 1px solid var(--line); overflow: auto; }
     section:last-child { border-right: 0; }
     label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 8px; }
-    textarea { width: 100%; min-height: 220px; resize: vertical; border: 1px solid var(--line); border-radius: 6px; padding: 12px; font: 14px Consolas, monospace; }
+    textarea { width: 100%; min-height: 230px; resize: vertical; border: 1px solid var(--line); border-radius: 6px; padding: 12px; font: 14px Consolas, monospace; line-height: 1.45; }
     input[type="number"] { width: 90px; border: 1px solid var(--line); border-radius: 6px; padding: 8px; }
     button { border: 0; border-radius: 6px; background: var(--accent); color: white; padding: 10px 14px; font-weight: 700; cursor: pointer; }
+    button.secondary { color: var(--ink); background: var(--soft); border: 1px solid #b2ccff; }
     button:disabled { opacity: .55; cursor: wait; }
     .row { display: flex; gap: 10px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
-    .hint { color: var(--muted); font-size: 13px; line-height: 1.5; }
+    .hint, .status { color: var(--muted); font-size: 13px; line-height: 1.5; }
+    .stats { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 8px; margin-bottom: 12px; }
+    .stat { border: 1px solid var(--line); background: var(--panel); border-radius: 6px; padding: 8px; }
+    .stat b { display: block; font-size: 18px; }
+    .stat span { color: var(--muted); font-size: 12px; }
     .event { border: 1px solid var(--line); border-left: 4px solid #98a2b3; border-radius: 6px; padding: 10px; margin-bottom: 10px; background: #fff; }
-    .event.tool_call { border-left-color: #2563eb; }
-    .event.observation { border-left-color: var(--accent); }
-    .event.final { border-left-color: #7c3aed; }
+    .event.tool_call { border-left-color: var(--accent); }
+    .event.observation { border-left-color: var(--ok); }
+    .event.final { border-left-color: var(--violet); }
     .event.limit, .event.error { border-left-color: var(--bad); }
     .event .type { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
     pre { white-space: pre-wrap; word-break: break-word; font: 13px Consolas, monospace; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px; margin: 8px 0 0; }
-    .metric { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px; margin-bottom: 10px; }
+    .metric { background: #fff; border: 1px solid var(--line); border-radius: 6px; padding: 10px; margin-bottom: 10px; }
     .metric b { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
-    .status { font-size: 13px; color: var(--muted); }
-    @media (max-width: 980px) { main { grid-template-columns: 1fr; } section { border-right: 0; border-bottom: 1px solid var(--line); } }
+    @media (max-width: 980px) { main { grid-template-columns: 1fr; } section { border-right: 0; border-bottom: 1px solid var(--line); } .stats { grid-template-columns: repeat(2, minmax(0,1fr)); } }
   </style>
 </head>
 <body>
@@ -58,14 +63,24 @@ HTML = """<!doctype html>
       <label for="task">Task</label>
       <textarea id="task">Please inspect examples/calculator, explain whether divide(a, b) and its pytest tests exist, and run the relevant tests.</textarea>
       <div class="row">
+        <button class="secondary" data-preset="map">Repo map</button>
+        <button class="secondary" data-preset="test">Verify calculator</button>
+        <button class="secondary" data-preset="patch">Patch example</button>
+      </div>
+      <div class="row">
         <label>Max steps <input id="maxSteps" type="number" min="1" max="40" value="12"></label>
-
       </div>
       <div class="row"><button id="runBtn">Run Agent</button></div>
       <p class="hint">The UI is only a display layer. The same handwritten agent loop and local tools execute underneath.</p>
     </section>
     <section>
       <h2>Step Timeline</h2>
+      <div class="stats">
+        <div class="stat"><b id="countSteps">0</b><span>steps</span></div>
+        <div class="stat"><b id="countTools">0</b><span>tool calls</span></div>
+        <div class="stat"><b id="countObs">0</b><span>observations</span></div>
+        <div class="stat"><b id="countErrors">0</b><span>errors</span></div>
+      </div>
       <div id="events"></div>
     </section>
     <section>
@@ -77,6 +92,11 @@ HTML = """<!doctype html>
     </section>
   </main>
 <script>
+const presets = {
+  map: 'Use repo_map on nanocode, then explain the most important modules and how the agent loop connects to local tools.',
+  test: 'Please inspect examples/calculator, explain whether divide(a, b) and its pytest tests exist, and run the relevant tests.',
+  patch: 'Use apply_patch_file on a small relevant example only if a change is needed, then run tests and summarize the git diff.'
+};
 const runBtn = document.getElementById('runBtn');
 const statusEl = document.getElementById('status');
 const eventsEl = document.getElementById('events');
@@ -90,12 +110,21 @@ function classify(event) {
   if (event.includes('observation')) return 'observation';
   if (event.startsWith('[final]')) return 'final';
   if (event.startsWith('[limit]')) return 'limit';
-  if (event.toLowerCase().includes('error')) return 'error';
+  if (event.toLowerCase().includes('error') || event.includes('ok=False')) return 'error';
   return 'planning';
+}
+
+function updateStats(events) {
+  const types = events.map(classify);
+  document.getElementById('countSteps').textContent = new Set(events.map(e => (e.match(/\[step (\d+)\]/) || [])[1]).filter(Boolean)).size;
+  document.getElementById('countTools').textContent = types.filter(t => t === 'tool_call').length;
+  document.getElementById('countObs').textContent = types.filter(t => t === 'observation').length;
+  document.getElementById('countErrors').textContent = types.filter(t => t === 'error' || t === 'limit').length;
 }
 
 function renderEvents(events) {
   eventsEl.innerHTML = '';
+  updateStats(events);
   for (const event of events) {
     const type = classify(event);
     const node = document.createElement('div');
@@ -106,10 +135,14 @@ function renderEvents(events) {
   }
 }
 
+document.querySelectorAll('[data-preset]').forEach(btn => {
+  btn.addEventListener('click', () => { document.getElementById('task').value = presets[btn.dataset.preset]; });
+});
+
 runBtn.addEventListener('click', async () => {
   runBtn.disabled = true;
   statusEl.textContent = 'Running...';
-  eventsEl.innerHTML = '';
+  renderEvents([]);
   finalEl.textContent = 'Waiting for result...';
   usageEl.textContent = '-';
   diffEl.textContent = '-';
@@ -131,7 +164,7 @@ runBtn.addEventListener('click', async () => {
     usageEl.textContent = data.usage_text || '-';
     diffEl.textContent = data.diff_summary || '-';
     logEl.textContent = data.log_path || '-';
-    statusEl.textContent = data.stopped_by_limit ? 'Stopped by step limit' : 'Finished';
+    statusEl.textContent = data.stopped_by_limit ? 'Stopped by step limit' : `Finished in ${data.steps} step(s)`;
   } catch (err) {
     statusEl.textContent = 'Error';
     finalEl.textContent = String(err.message || err);
@@ -221,8 +254,7 @@ def run_agent_from_payload(config: Any, workspace: Path, payload: dict[str, Any]
     if not task:
         return {"ok": False, "error": "task is required"}
     max_steps = int(payload.get("max_steps") or config.max_steps)
-    confirm_actions = bool(payload.get("confirm_actions", False))
-    tools = LocalTools(workspace, confirm_commands=confirm_actions)
+    tools = LocalTools(workspace, confirm_commands=False)
     model = OpenAICompatibleLLM(config.api_key, config.base_url, config.model)
     agent = CodingAgent(model=model, tools=tools, max_steps=max(1, max_steps))
     result = agent.run(task)

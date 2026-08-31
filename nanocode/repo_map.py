@@ -22,6 +22,7 @@ DEFAULT_IGNORE_DIRS = {
     "venv",
 }
 SUPPORTED_SUFFIXES = {".py", ".js", ".jsx", ".ts", ".tsx", ".java"}
+TOKEN_RE = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\b")
 
 
 @dataclass
@@ -29,17 +30,27 @@ class FileSummary:
     path: str
     imports: list[str] = field(default_factory=list)
     symbols: list[str] = field(default_factory=list)
+    definitions: set[str] = field(default_factory=set)
+    references: set[str] = field(default_factory=set)
+    dependencies: list[str] = field(default_factory=list)
+    score: float = 0.0
     skipped_reason: str | None = None
 
     def render(self) -> list[str]:
         if self.skipped_reason:
             return [f"{self.path}", f"  skipped: {self.skipped_reason}"]
-        lines = [self.path]
+        lines = [f"{self.path}  score={self.score:.3f}"]
+        if self.dependencies:
+            lines.append("  depends_on: " + ", ".join(self.dependencies[:8]))
         if self.imports:
             lines.append("  imports: " + ", ".join(self.imports[:12]))
         if self.symbols:
             lines.extend(f"  {symbol}" for symbol in self.symbols[:24])
-        if not self.imports and not self.symbols:
+        if self.references:
+            refs = sorted(self.references - self.definitions)[:12]
+            if refs:
+                lines.append("  refs: " + ", ".join(refs))
+        if not self.imports and not self.symbols and not self.references:
             lines.append("  no top-level symbols found")
         return lines
 
@@ -54,8 +65,9 @@ class RepoMap:
 
     def build(self, path: str | Path = ".") -> str:
         target = (self.root / path).resolve() if not Path(path).is_absolute() else Path(path).resolve()
+        root = self.root.resolve()
         try:
-            target.relative_to(self.root.resolve())
+            target.relative_to(root)
         except ValueError as exc:
             raise ValueError(f"Path escapes workspace: {path}") from exc
         if not target.exists():
@@ -63,9 +75,12 @@ class RepoMap:
 
         files = [target] if target.is_file() else list(self._iter_source_files(target))
         summaries = [self._summarize_file(file_path) for file_path in files[: self.max_files]]
+        _connect_and_rank(summaries)
+        summaries = sorted(summaries, key=lambda item: (-item.score, item.path))
         lines = [
             f"Repo map for {Path(path).as_posix()}",
             f"files_shown={len(summaries)} files_total_at_least={len(files)} max_file_bytes={self.max_file_bytes}",
+            "ranking=lightweight_def_ref_pagerank",
             "",
         ]
         for summary in summaries:
@@ -102,14 +117,14 @@ class RepoMap:
 
         suffix = path.suffix.lower()
         if suffix == ".py":
-            imports, symbols = summarize_python(text)
+            imports, symbols, definitions, references = summarize_python_details(text)
         elif suffix in {".js", ".jsx", ".ts", ".tsx"}:
-            imports, symbols = summarize_javascript_like(text)
+            imports, symbols, definitions, references = summarize_javascript_details(text)
         elif suffix == ".java":
-            imports, symbols = summarize_java(text)
+            imports, symbols, definitions, references = summarize_java_details(text)
         else:
-            imports, symbols = [], []
-        return FileSummary(path=rel, imports=imports, symbols=symbols)
+            imports, symbols, definitions, references = [], [], set(), set()
+        return FileSummary(path=rel, imports=imports, symbols=symbols, definitions=definitions, references=references)
 
     def _is_ignored(self, path: Path) -> bool:
         rel_parts = path.relative_to(self.root.resolve()).parts
@@ -117,29 +132,46 @@ class RepoMap:
 
 
 def summarize_python(text: str) -> tuple[list[str], list[str]]:
+    imports, symbols, _, _ = summarize_python_details(text)
+    return imports, symbols
+
+
+def summarize_python_details(text: str) -> tuple[list[str], list[str], set[str], set[str]]:
     try:
         tree = ast.parse(text)
     except SyntaxError as exc:
-        return [], [f"parse_error line {exc.lineno}: {exc.msg}"]
+        return [], [f"parse_error line {exc.lineno}: {exc.msg}"], set(), set()
 
     imports: list[str] = []
     symbols: list[str] = []
+    definitions: set[str] = set()
+    references: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name):
+            references.add(node.id)
+        elif isinstance(node, ast.Attribute):
+            references.add(node.attr)
     for node in tree.body:
         if isinstance(node, ast.Import):
             imports.extend(alias.name for alias in node.names)
+            references.update(alias.name.split(".")[0] for alias in node.names)
         elif isinstance(node, ast.ImportFrom):
             module = "." * node.level + (node.module or "")
             imports.append(module)
+            references.update(alias.name for alias in node.names)
         elif isinstance(node, ast.ClassDef):
+            definitions.add(node.name)
             symbols.append(f"line {node.lineno}: class {node.name}")
             for child in node.body:
                 if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     symbols.append(f"line {child.lineno}: method {node.name}.{child.name}")
         elif isinstance(node, ast.AsyncFunctionDef):
+            definitions.add(node.name)
             symbols.append(f"line {node.lineno}: async def {node.name}")
         elif isinstance(node, ast.FunctionDef):
+            definitions.add(node.name)
             symbols.append(f"line {node.lineno}: def {node.name}")
-    return _dedupe(imports), symbols
+    return _dedupe(imports), symbols, definitions, references
 
 
 _JS_IMPORT_RE = re.compile(r"^\s*(?:import\s+[^;]+\s+from\s+['\"]([^'\"]+)['\"]|import\s+['\"]([^'\"]+)['\"]|const\s+\w+\s*=\s*require\(['\"]([^'\"]+)['\"]\))", re.MULTILINE)
@@ -147,16 +179,24 @@ _JS_SYMBOL_RE = re.compile(r"^\s*(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*\
 
 
 def summarize_javascript_like(text: str) -> tuple[list[str], list[str]]:
+    imports, symbols, _, _ = summarize_javascript_details(text)
+    return imports, symbols
+
+
+def summarize_javascript_details(text: str) -> tuple[list[str], list[str], set[str], set[str]]:
     imports = [_first_group(match) for match in _JS_IMPORT_RE.finditer(text)]
+    definitions: set[str] = set()
     symbols: list[str] = []
     lines = text.splitlines()
     for idx, line in enumerate(lines, start=1):
         match = _JS_SYMBOL_RE.match(line)
         if match:
             name = _first_group(match)
+            definitions.add(name)
             kind = "class" if "class" in line else "function"
             symbols.append(f"line {idx}: {kind} {name}")
-    return _dedupe(imports), symbols
+    references = set(TOKEN_RE.findall(text))
+    return _dedupe(imports), symbols, definitions, references
 
 
 _JAVA_IMPORT_RE = re.compile(r"^\s*import\s+([\w.*]+);", re.MULTILINE)
@@ -165,18 +205,70 @@ _JAVA_METHOD_RE = re.compile(r"^\s*(?:public|private|protected)\s+(?:static\s+)?
 
 
 def summarize_java(text: str) -> tuple[list[str], list[str]]:
+    imports, symbols, _, _ = summarize_java_details(text)
+    return imports, symbols
+
+
+def summarize_java_details(text: str) -> tuple[list[str], list[str], set[str], set[str]]:
     imports = _JAVA_IMPORT_RE.findall(text)
+    definitions: set[str] = set()
     symbols: list[str] = []
     lines = text.splitlines()
     for idx, line in enumerate(lines, start=1):
         type_match = _JAVA_TYPE_RE.match(line)
         if type_match:
-            symbols.append(f"line {idx}: type {type_match.group(1)}")
+            name = type_match.group(1)
+            definitions.add(name)
+            symbols.append(f"line {idx}: type {name}")
             continue
         method_match = _JAVA_METHOD_RE.match(line)
         if method_match:
-            symbols.append(f"line {idx}: method {method_match.group(1)}")
-    return _dedupe(imports), symbols
+            name = method_match.group(1)
+            definitions.add(name)
+            symbols.append(f"line {idx}: method {name}")
+    references = set(TOKEN_RE.findall(text))
+    return _dedupe(imports), symbols, definitions, references
+
+
+def _connect_and_rank(summaries: list[FileSummary]) -> None:
+    active = [summary for summary in summaries if not summary.skipped_reason]
+    definitions: dict[str, set[str]] = {}
+    for summary in active:
+        for name in summary.definitions:
+            definitions.setdefault(name, set()).add(summary.path)
+
+    edges: dict[str, set[str]] = {summary.path: set() for summary in active}
+    for summary in active:
+        for ref in summary.references:
+            for target in definitions.get(ref, set()):
+                if target != summary.path:
+                    edges[summary.path].add(target)
+        summary.dependencies = sorted(edges[summary.path])
+
+    scores = _pagerank(edges)
+    for summary in summaries:
+        summary.score = scores.get(summary.path, 0.0)
+
+
+def _pagerank(edges: dict[str, set[str]], rounds: int = 20, damping: float = 0.85) -> dict[str, float]:
+    if not edges:
+        return {}
+    nodes = list(edges)
+    n = len(nodes)
+    scores = {node: 1.0 / n for node in nodes}
+    for _ in range(rounds):
+        next_scores = {node: (1.0 - damping) / n for node in nodes}
+        for source, targets in edges.items():
+            if not targets:
+                share = scores[source] / n
+                for node in nodes:
+                    next_scores[node] += damping * share
+                continue
+            share = scores[source] / len(targets)
+            for target in targets:
+                next_scores[target] += damping * share
+        scores = next_scores
+    return scores
 
 
 def _first_group(match: re.Match[str]) -> str:

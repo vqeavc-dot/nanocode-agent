@@ -58,3 +58,16 @@ def test_repo_map_respects_character_budget(tmp_path: Path):
 
     assert len(rendered) <= 300
     assert "repo map truncated" in rendered
+
+
+def test_repo_map_ranks_referenced_file_above_caller(tmp_path: Path):
+    (tmp_path / "service.py").write_text("def important():\n    return 1\n", encoding="utf-8")
+    (tmp_path / "caller.py").write_text("from service import important\n\ndef run():\n    return important()\n", encoding="utf-8")
+
+    rendered = RepoMap(tmp_path).build(".")
+    service_index = rendered.index("service.py")
+    caller_index = rendered.index("caller.py")
+
+    assert "ranking=lightweight_def_ref_pagerank" in rendered
+    assert service_index < caller_index
+    assert "depends_on: service.py" in rendered
