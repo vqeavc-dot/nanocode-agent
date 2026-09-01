@@ -51,6 +51,7 @@ def test_agent_loop_runs_tools_until_final_answer(tmp_path: Path):
     assert not result.stopped_by_limit
     assert result.final == "Changed value to 2 and syntax check passed."
     assert "return 2" in (tmp_path / "app.py").read_text(encoding="utf-8")
+    assert result.transcript[0].startswith("[plan]")
 
 
 def test_agent_verbose_records_each_tool_event(tmp_path: Path, capsys):
@@ -64,6 +65,7 @@ def test_agent_verbose_records_each_tool_event(tmp_path: Path, capsys):
     assert "tool_call edit_file" in output
     assert "tool_call run_command" in output
     assert any("observation run_command ok=True" in event for event in result.transcript)
+    assert any(event.startswith("[verify]") for event in result.transcript)
 
 
 def test_agent_aggregates_token_usage(tmp_path: Path):

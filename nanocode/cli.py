@@ -11,6 +11,7 @@ from .agent import AgentResult, CodingAgent
 from .config import load_config
 from .llm import OpenAICompatibleLLM
 from .tools import LocalTools
+from .verifier import inspect_transcript
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -155,11 +156,7 @@ def _write_run_log(log_dir: str, task: str, result: AgentResult, diff_summary: s
 
 
 def _run_looked_tested(result: AgentResult) -> bool:
-    for event in result.transcript:
-        lowered = event.lower()
-        if "observation run_command ok=true" in lowered and any(word in lowered for word in ["pytest", "passed", "test"]):
-            return True
-    return False
+    return inspect_transcript(result.transcript).passed
 
 
 def _has_worktree_changes(workspace: Path) -> bool:

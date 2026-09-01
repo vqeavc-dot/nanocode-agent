@@ -5,8 +5,10 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Protocol
 
 from .memory import Memory
+from .planner import LightweightPlanner
 from .prompts import SYSTEM_PROMPT
 from .tools import LocalTools
+from .verifier import inspect_transcript
 
 
 class ChatModel(Protocol):
@@ -32,6 +34,7 @@ class CodingAgent:
         memory: Memory | None = None,
         verbose: bool = False,
         event_sink: Callable[[str], None] | None = None,
+        planner: LightweightPlanner | None = None,
     ):
         self.model = model
         self.tools = tools
@@ -40,13 +43,17 @@ class CodingAgent:
         self.verbose = verbose
         self.event_sink = event_sink
         self.usage: dict[str, int] = {}
+        self.planner = planner or LightweightPlanner()
 
     def run(self, task: str) -> AgentResult:
+        plan = self.planner.build(task)
         base_messages: list[dict[str, Any]] = [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": task},
+            {"role": "user", "content": f"Initial lightweight plan:\n{plan.render()}"},
         ]
         transcript: list[str] = []
+        self._record(transcript, f"[plan]\n{plan.render()}")
 
         for step in range(1, self.max_steps + 1):
             self._record(transcript, f"[step {step}] planning next action")
@@ -80,6 +87,9 @@ class CodingAgent:
                 result = self.tools.run(name, args)
                 self.memory.add(name, result.to_json(), ok=result.ok)
                 self._record(transcript, f"[step {step}] observation {name} ok={result.ok}: {_truncate_text(result.content)}")
+                if name == "run_command":
+                    signal = inspect_transcript(transcript)
+                    self._record(transcript, f"[verify] {signal.render()}")
                 if name == "final_answer" and result.ok:
                     return AgentResult(final=result.content, steps=step, transcript=transcript, usage=dict(self.usage))
 

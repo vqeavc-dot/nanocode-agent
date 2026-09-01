@@ -61,16 +61,22 @@ class LocalTools:
 
     def schemas(self) -> list[dict[str, Any]]:
         return [
-            _schema("list_files", "List files and directories in a workspace path.", {"path": "string", "limit": "integer"}),
-            _schema("search_code", "Search text in workspace files and return ranked concise matches.", {"query": "string", "path": "string", "limit": "integer"}, ["query"]),
-            _schema("list_symbols", "List Python classes and functions with line numbers for code-structure analysis.", {"path": "string", "limit": "integer"}),
-            _schema("repo_map", "Build a compact repository map with imports, symbols, references, and dependency scores.", {"path": "string", "max_files": "integer", "max_chars": "integer"}),
-            _schema("view_file", "View a numbered line window from a file.", {"path": "string", "start_line": "integer", "limit": "integer"}, ["path"]),
-            _schema("edit_file", "Replace exactly one old_text occurrence in a file.", {"path": "string", "old_text": "string", "new_text": "string"}, ["path", "old_text", "new_text"]),
-            _schema("write_file", "Create or overwrite a workspace file.", {"path": "string", "content": "string"}, ["path", "content"]),
-            _schema("apply_patch_file", "Apply a single-file unified diff patch with context validation and rollback.", {"path": "string", "patch": "string"}, ["path", "patch"]),
-            _schema("run_command", "Run a safe shell command in the workspace.", {"command": "string", "timeout": "integer"}, ["command"]),
-            _schema("final_answer", "Finish the task with a concise summary.", {"summary": "string"}, ["summary"]),
+            _schema(spec["name"], spec["description"], spec["properties"], spec["required"])
+            for spec in self.tool_catalog()
+        ]
+
+    def tool_catalog(self) -> list[dict[str, Any]]:
+        return [
+            {"name": "list_files", "stage": "context", "description": "List files and directories in a workspace path.", "properties": {"path": "string", "limit": "integer"}, "required": []},
+            {"name": "search_code", "stage": "context", "description": "Search text in workspace files and return ranked concise matches.", "properties": {"query": "string", "path": "string", "limit": "integer"}, "required": ["query"]},
+            {"name": "list_symbols", "stage": "context", "description": "List Python classes and functions with line numbers for code-structure analysis.", "properties": {"path": "string", "limit": "integer"}, "required": []},
+            {"name": "repo_map", "stage": "context", "description": "Build a compact repository map with imports, symbols, references, and dependency scores.", "properties": {"path": "string", "max_files": "integer", "max_chars": "integer"}, "required": []},
+            {"name": "view_file", "stage": "context", "description": "View a numbered line window from a file.", "properties": {"path": "string", "start_line": "integer", "limit": "integer"}, "required": ["path"]},
+            {"name": "edit_file", "stage": "edit", "description": "Replace exactly one old_text occurrence in a file.", "properties": {"path": "string", "old_text": "string", "new_text": "string"}, "required": ["path", "old_text", "new_text"]},
+            {"name": "write_file", "stage": "edit", "description": "Create or overwrite a workspace file.", "properties": {"path": "string", "content": "string"}, "required": ["path", "content"]},
+            {"name": "apply_patch_file", "stage": "edit", "description": "Apply a single-file unified diff patch with context validation and rollback.", "properties": {"path": "string", "patch": "string"}, "required": ["path", "patch"]},
+            {"name": "run_command", "stage": "verify", "description": "Run a safe shell command in the workspace.", "properties": {"command": "string", "timeout": "integer"}, "required": ["command"]},
+            {"name": "final_answer", "stage": "finish", "description": "Finish the task with a concise summary.", "properties": {"summary": "string"}, "required": ["summary"]},
         ]
 
     def run(self, name: str, arguments: dict[str, Any]) -> ToolResult:

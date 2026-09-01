@@ -1,6 +1,6 @@
 # NanoCode Agent
 
-NanoCode Agent is a small coding agent implemented without agent frameworks. It uses a hand-written loop, OpenAI-compatible chat APIs, and local tools for code search, windowed file viewing, file editing, and command execution.
+NanoCode Agent is a small coding agent implemented without agent frameworks. Its architecture is **ReAct + Lightweight Planner + Skill-like Tools**: a short local plan starts the run, then a hand-written model-tool-observation loop uses local repository tools to inspect, edit, verify, and summarize code changes.
 
 ## Why This Project Exists
 
@@ -39,13 +39,43 @@ nanocode-ui
 ```
 
 Open `http://127.0.0.1:8765` to submit a task and inspect the step timeline, tool calls, observations, token usage, run log path, and git diff summary. The UI is only a presentation layer; the same local agent loop and tools do the work.
+
+## Demo Scripts
+
+```powershell
+.\scripts\reset_demo.ps1
+.\scripts\run_demo.ps1
+```
+
+`run_demo.ps1` runs a reproducible calculator task with verbose tracing. Use it as the command-line path for the final video, or run `nanocode-ui` for the visual path.
+
+After recording the final MP4, create the required submission zip:
+
+```powershell
+.\scripts\package_submission.ps1 -Name "你的姓名" -VideoPath ".\demo.mp4"
+```
+
 ## Core Design
 
-- Planning: the model decides the next tool call after each observation.
-- Memory: the agent keeps recent observations intact and summarizes older ones.
-- Perception: tools expose repository state through ranked repo maps, ranked search results, file windows, and command output.
-- Action: local tools read, write, edit with exact replacement or single-file unified diffs, inspect Python symbols, and execute commands inside a sandboxed workspace.
+- Agent Loop: the ReAct loop calls the model, parses tool calls, executes local tools, records observations, and stops on `final_answer` or a step limit.
+- Lightweight Planner: a deterministic planner writes an initial plan into the prompt, transcript, run log, and UI before the ReAct loop starts.
+- Memory: recent observations stay intact while older observations are compressed into summaries.
+- Tool Registry: skill-like tools are described in a catalog and exposed as OpenAI-compatible tool schemas.
+- RepoMap: compact repository summaries include symbols, imports, references, def/ref dependencies, and lightweight PageRank-style scores.
+- Patch Editor: `apply_patch_file` applies single-file unified diffs with context validation and Python rollback checks.
+- Sandbox: file access is limited to the workspace and risky shell commands are blocked.
+- Verifier: `run_command` observations are inspected for test signals; `--auto-commit` is allowed only after successful tests are observed.
+- Logger/UI: CLI and web UI show plan, steps, tool calls, observations, verification signals, token usage, run logs, and git diff summaries.
+
+## Tool Catalog
+
+| Stage | Tools |
+| --- | --- |
+| Context | `repo_map`, `search_code`, `list_files`, `list_symbols`, `view_file` |
+| Edit | `apply_patch_file`, `edit_file`, `write_file` |
+| Verify | `run_command` |
+| Finish | `final_answer` |
 
 ## Safety
 
-NanoCode restricts file access to the configured workspace, blocks risky shell commands, optionally asks for confirmation before shell execution, truncates long outputs, limits the number of agent steps, and runs Python syntax checks after editing `.py` files. It also includes a lightweight repo map inspired by aider: Python symbols are extracted with AST, JavaScript/TypeScript/Java symbols are extracted with small parsers, def/ref edges are ranked with a tiny PageRank implementation, large files and dependency folders are skipped, and output is capped by a character budget. NanoCode retries transient model API failures, reports token usage when the provider returns it, and prints a git diff summary after each run.
+NanoCode restricts file access to the configured workspace, blocks risky shell commands, optionally asks for confirmation before shell execution, truncates long outputs, limits the number of agent steps, and runs Python syntax checks after editing `.py` files. NanoCode retries transient model API failures, reports token usage when the provider returns it, and prints a git diff summary after each run.

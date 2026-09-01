@@ -30,5 +30,7 @@ def test_ui_contains_preset_buttons_and_metrics():
     from nanocode.ui import HTML
 
     assert "data-preset=\"map\"" in HTML
+    assert "countPlans" in HTML
+    assert "[verify]" in HTML
     assert "countTools" in HTML
     assert "Git diff summary" in HTML

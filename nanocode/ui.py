@@ -37,7 +37,7 @@ HTML = r"""<!doctype html>
     button:disabled { opacity: .55; cursor: wait; }
     .row { display: flex; gap: 10px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
     .hint, .status { color: var(--muted); font-size: 13px; line-height: 1.5; }
-    .stats { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 8px; margin-bottom: 12px; }
+    .stats { display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap: 8px; margin-bottom: 12px; }
     .stat { border: 1px solid var(--line); background: var(--panel); border-radius: 6px; padding: 8px; }
     .stat b { display: block; font-size: 18px; }
     .stat span { color: var(--muted); font-size: 12px; }
@@ -77,6 +77,7 @@ HTML = r"""<!doctype html>
       <h2>Step Timeline</h2>
       <div class="stats">
         <div class="stat"><b id="countSteps">0</b><span>steps</span></div>
+        <div class="stat"><b id="countPlans">0</b><span>plans</span></div>
         <div class="stat"><b id="countTools">0</b><span>tool calls</span></div>
         <div class="stat"><b id="countObs">0</b><span>observations</span></div>
         <div class="stat"><b id="countErrors">0</b><span>errors</span></div>
@@ -106,6 +107,8 @@ const diffEl = document.getElementById('diff');
 const logEl = document.getElementById('logPath');
 
 function classify(event) {
+  if (event.startsWith('[plan]')) return 'plan';
+  if (event.startsWith('[verify]')) return 'verify';
   if (event.includes('tool_call')) return 'tool_call';
   if (event.includes('observation')) return 'observation';
   if (event.startsWith('[final]')) return 'final';
@@ -117,6 +120,7 @@ function classify(event) {
 function updateStats(events) {
   const types = events.map(classify);
   document.getElementById('countSteps').textContent = new Set(events.map(e => (e.match(/\[step (\d+)\]/) || [])[1]).filter(Boolean)).size;
+  document.getElementById('countPlans').textContent = types.filter(t => t === 'plan').length;
   document.getElementById('countTools').textContent = types.filter(t => t === 'tool_call').length;
   document.getElementById('countObs').textContent = types.filter(t => t === 'observation').length;
   document.getElementById('countErrors').textContent = types.filter(t => t === 'error' || t === 'limit').length;

@@ -18,7 +18,7 @@ def test_collect_git_diff_summary_returns_empty_outside_git(tmp_path: Path):
 class CommitResult:
     final = "Update files"
     stopped_by_limit = False
-    transcript = ["[step 1] observation run_command ok=True: pytest 1 passed"]
+    transcript = ["[step 1] tool_call run_command args={\"command\": \"python -m pytest\"}", "[step 1] observation run_command ok=True: pytest 1 passed exit_code=0"]
 
 
 class UntestedResult:

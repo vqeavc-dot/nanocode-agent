@@ -208,3 +208,12 @@ def test_search_code_limits_matches_per_file(tmp_path: Path):
 
     assert result.ok
     assert result.content.count("many.py") == 5
+
+
+def test_tool_catalog_matches_schema_names(tmp_path: Path):
+    tools = LocalTools(tmp_path)
+    catalog_names = [item["name"] for item in tools.tool_catalog()]
+    schema_names = [item["function"]["name"] for item in tools.schemas()]
+
+    assert catalog_names == schema_names
+    assert {item["stage"] for item in tools.tool_catalog()} >= {"context", "edit", "verify", "finish"}
