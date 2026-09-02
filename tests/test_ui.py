@@ -29,14 +29,22 @@ def test_run_agent_payload_requires_task(tmp_path: Path):
 def test_ui_contains_preset_buttons_and_metrics():
     from nanocode.ui import HTML
 
+    assert "NanoCode Agent 工作台" in HTML
     assert "data-preset=\"map\"" in HTML
-    assert "<option value=\"review\">Review</option>" in HTML
-    assert "<option value=\"trust\">Trust</option>" in HTML
+    assert "审查模式 Review" in HTML
+    assert "信任模式 Trust" in HTML
     assert "countPlans" in HTML
+    assert "countVerify" in HTML
     assert "[verify]" in HTML
     assert "[mode]" in HTML
     assert "[profile]" in HTML
     assert "[skill]" in HTML
     assert "[reflect]" in HTML
+    assert "laneDecision" in HTML
+    assert "laneContext" in HTML
+    assert "laneAction" in HTML
+    assert "laneFeedback" in HTML
+    assert "laneVerify" in HTML
+    assert "laneSafety" in HTML
     assert "countTools" in HTML
-    assert "Git diff summary" in HTML
+    assert "Git diff 摘要" in HTML
