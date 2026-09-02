@@ -1,24 +1,74 @@
-# NanoCode Agent Demo Script
+# NanoCode Agent 2-Minute Video Plan
 
-## Command-line demo
+## Goal
 
-1. Run `.\scripts\reset_demo.ps1`.
-2. Run `.\scripts\run_demo.ps1`.
-3. Point out the visible stages:
-   - `[plan]`: lightweight planner.
-   - `tool_call repo_map/search_code/view_file`: context selection.
-   - `tool_call apply_patch_file/edit_file`: local edit action.
-   - `tool_call run_command`: verifier.
-   - `[verify]`: test signal detection.
-   - `Git diff summary` and `Token usage`: observability.
+Show NanoCode completing one real programming task while explaining why it is a coding agent rather than a wrapper around a chat model.
 
-## UI demo
+## Recommended Demo Task
 
-1. Run `nanocode-ui`.
-2. Open `http://127.0.0.1:8765`.
-3. Use the "Verify calculator" or "Patch example" preset.
-4. Explain that the UI is only a presentation layer; the handwritten local agent loop executes underneath.
+```powershell
+.\scripts\reset_demo.ps1
+.\scripts\run_demo.ps1
+```
 
-## Oral explanation
+The task asks NanoCode to inspect `examples/calculator`, ensure `divide(a, b)` and pytest coverage exist, make the smallest safe edit if needed, run tests, and summarize the diff.
 
-NanoCode uses ReAct as the core because coding tasks need repeated observation and adjustment. A lightweight local planner provides an initial route, while the skill-like tool registry exposes repository map, search, file viewing, patch editing, command execution, and final answer tools. This keeps the project explainable without depending on forbidden agent frameworks.
+## Timeline
+
+### 0:00-0:15 Opening
+
+Say:
+
+> This is NanoCode Agent, a local coding agent built without LangChain, AutoGen, Agents SDK, Code Interpreter, or Files API. Its architecture is ReAct plus a lightweight planner and skill-like local tools.
+
+Show the repository and `.env.example`, briefly mention the real API key is only in local `.env`.
+
+### 0:15-0:35 Run The Task
+
+Run:
+
+```powershell
+.\scripts\run_demo.ps1
+```
+
+Point to `--verbose --mode trust`. Say:
+
+> Trust mode is explicitly enabled for this controlled demo. Review mode is the safer default.
+
+### 0:35-1:15 Explain The Trace
+
+Highlight these lines in the terminal or UI:
+
+- `[mode]`: permission policy.
+- `[profile]`: task type and risk classification.
+- `[skill]`: selected workflow.
+- `[plan]`: initial plan.
+- `tool_call repo_map/search_code/view_file`: context selection.
+- `tool_call apply_patch_file/edit_file`: local code edit.
+- `observation`: real tool result returned to the model.
+- `[reflect]`: structured failure feedback if a tool fails.
+- `[verify]`: test result signal.
+
+Say:
+
+> The model decides actions, but Python owns the local execution. Every file read, patch, command, and error is turned into an observation and fed back into the ReAct loop.
+
+### 1:15-1:40 Show Result And Tests
+
+Show final answer, token usage, git diff summary, and run log path. Then show:
+
+```powershell
+python -m pytest
+```
+
+Say:
+
+> The project includes unit tests for agent loop, memory, tools, sandbox, repo map, planner, skill registry, verifier, risk policy, UI, and eval cases.
+
+### 1:40-2:00 Close
+
+Say:
+
+> The main design choice is to start from the coding-agent job description: choose relevant context, safely edit local files, verify with tests, and make every step auditable. Multi-agent review or testing can be added later on top of this reliable single-agent loop.
+
+End by showing GitHub commit history.
