@@ -20,10 +20,10 @@ Edit `.env` and set your API key and model.
 Run a task:
 
 ```powershell
-nanocode "Add divide() to examples/calculator and run tests" --verbose
+nanocode "Add divide() to examples/calculator and run tests" --verbose --mode trust
 ```
 
-Each run writes a Markdown trace to `run_logs/` by default. Use `--no-log` to disable log files. Add `--auto-commit` only when you want NanoCode to commit changes after it observes a successful test command. Run tests:
+NanoCode defaults to `--mode review`, which favors inspection and command confirmation. Use `--mode trust` for demos or familiar workspaces where safe commands may run without extra confirmation. Each run writes a Markdown trace to `run_logs/` by default. Use `--no-log` to disable log files. Add `--auto-commit` only in trust mode when you want NanoCode to commit changes after it observes a successful test command. Run tests:
 
 ```powershell
 pytest
@@ -58,6 +58,7 @@ After recording the final MP4, create the required submission zip:
 ## Core Design
 
 - Agent Loop: the ReAct loop calls the model, parses tool calls, executes local tools, records observations, and stops on `final_answer` or a step limit.
+- Review/Trust Modes: review mode is conservative by default; trust mode must be explicitly selected before automatic commits are allowed.
 - Lightweight Planner: a deterministic planner writes an initial plan into the prompt, transcript, run log, and UI before the ReAct loop starts.
 - Memory: recent observations stay intact while older observations are compressed into summaries.
 - Tool Registry: skill-like tools are described in a catalog and exposed as OpenAI-compatible tool schemas.
@@ -75,6 +76,10 @@ After recording the final MP4, create the required submission zip:
 | Edit | `apply_patch_file`, `edit_file`, `write_file` |
 | Verify | `run_command` |
 | Finish | `final_answer` |
+
+## Review and Trust
+
+Review mode is for learning, demos with careful explanation, and unfamiliar repositories. It highlights the plan, observations, verification, and diff before the user trusts the result. Trust mode is for controlled workspaces: safe commands can run without an extra prompt, and `--auto-commit` may create a commit after tests pass.
 
 ## Safety
 

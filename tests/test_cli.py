@@ -33,3 +33,7 @@ def test_auto_commit_skips_without_successful_test(tmp_path: Path):
 
 def test_auto_commit_skips_outside_git(tmp_path: Path):
     assert "not a Git repository" in auto_commit_changes(tmp_path, CommitResult())
+
+
+def test_auto_commit_skips_in_review_mode(tmp_path: Path):
+    assert "review mode" in auto_commit_changes(tmp_path, CommitResult(), allow_auto_commit=False)

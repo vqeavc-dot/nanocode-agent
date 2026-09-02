@@ -10,6 +10,7 @@ from .agent import CodingAgent
 from .cli import collect_git_diff_summary, format_usage
 from .config import load_config
 from .llm import OpenAICompatibleLLM
+from .modes import resolve_mode
 from .tools import LocalTools
 
 
@@ -35,6 +36,7 @@ HTML = r"""<!doctype html>
     button { border: 0; border-radius: 6px; background: var(--accent); color: white; padding: 10px 14px; font-weight: 700; cursor: pointer; }
     button.secondary { color: var(--ink); background: var(--soft); border: 1px solid #b2ccff; }
     button:disabled { opacity: .55; cursor: wait; }
+    select { border: 1px solid var(--line); border-radius: 6px; padding: 8px; background: #fff; }
     .row { display: flex; gap: 10px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
     .hint, .status { color: var(--muted); font-size: 13px; line-height: 1.5; }
     .stats { display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap: 8px; margin-bottom: 12px; }
@@ -42,6 +44,7 @@ HTML = r"""<!doctype html>
     .stat b { display: block; font-size: 18px; }
     .stat span { color: var(--muted); font-size: 12px; }
     .event { border: 1px solid var(--line); border-left: 4px solid #98a2b3; border-radius: 6px; padding: 10px; margin-bottom: 10px; background: #fff; }
+    .event.mode { border-left-color: #475467; }
     .event.tool_call { border-left-color: var(--accent); }
     .event.observation { border-left-color: var(--ok); }
     .event.final { border-left-color: var(--violet); }
@@ -69,6 +72,7 @@ HTML = r"""<!doctype html>
       </div>
       <div class="row">
         <label>Max steps <input id="maxSteps" type="number" min="1" max="40" value="12"></label>
+        <label>Mode <select id="mode"><option value="review">Review</option><option value="trust">Trust</option></select></label>
       </div>
       <div class="row"><button id="runBtn">Run Agent</button></div>
       <p class="hint">The UI is only a display layer. The same handwritten agent loop and local tools execute underneath.</p>
@@ -87,6 +91,7 @@ HTML = r"""<!doctype html>
     <section>
       <h2>Result</h2>
       <div class="metric"><b>Final answer</b><pre id="final">No run yet.</pre></div>
+      <div class="metric"><b>Mode</b><pre id="modeOut">review</pre></div>
       <div class="metric"><b>Token usage</b><pre id="usage">-</pre></div>
       <div class="metric"><b>Git diff summary</b><pre id="diff">-</pre></div>
       <div class="metric"><b>Run log</b><pre id="logPath">-</pre></div>
@@ -105,8 +110,10 @@ const finalEl = document.getElementById('final');
 const usageEl = document.getElementById('usage');
 const diffEl = document.getElementById('diff');
 const logEl = document.getElementById('logPath');
+const modeOutEl = document.getElementById('modeOut');
 
 function classify(event) {
+  if (event.startsWith('[mode]')) return 'mode';
   if (event.startsWith('[plan]')) return 'plan';
   if (event.startsWith('[verify]')) return 'verify';
   if (event.includes('tool_call')) return 'tool_call';
@@ -148,6 +155,7 @@ runBtn.addEventListener('click', async () => {
   statusEl.textContent = 'Running...';
   renderEvents([]);
   finalEl.textContent = 'Waiting for result...';
+  modeOutEl.textContent = document.getElementById('mode').value;
   usageEl.textContent = '-';
   diffEl.textContent = '-';
   logEl.textContent = '-';
@@ -158,13 +166,14 @@ runBtn.addEventListener('click', async () => {
       body: JSON.stringify({
         task: document.getElementById('task').value,
         max_steps: Number(document.getElementById('maxSteps').value || 12),
-        confirm_actions: false
+        mode: document.getElementById('mode').value
       })
     });
     const data = await response.json();
     if (!response.ok || !data.ok) throw new Error(data.error || 'Run failed');
     renderEvents(data.transcript);
     finalEl.textContent = data.final || '';
+    modeOutEl.textContent = data.mode || '-';
     usageEl.textContent = data.usage_text || '-';
     diffEl.textContent = data.diff_summary || '-';
     logEl.textContent = data.log_path || '-';
@@ -258,9 +267,13 @@ def run_agent_from_payload(config: Any, workspace: Path, payload: dict[str, Any]
     if not task:
         return {"ok": False, "error": "task is required"}
     max_steps = int(payload.get("max_steps") or config.max_steps)
+    try:
+        mode = resolve_mode(str(payload.get("mode") or "review"))
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
     tools = LocalTools(workspace, confirm_commands=False)
     model = OpenAICompatibleLLM(config.api_key, config.base_url, config.model)
-    agent = CodingAgent(model=model, tools=tools, max_steps=max(1, max_steps))
+    agent = CodingAgent(model=model, tools=tools, max_steps=max(1, max_steps), mode=mode)
     result = agent.run(task)
     diff_summary = collect_git_diff_summary(workspace)
     log_path = write_ui_run_log(workspace, task, result, diff_summary)
@@ -269,6 +282,7 @@ def run_agent_from_payload(config: Any, workspace: Path, payload: dict[str, Any]
         "final": result.final,
         "steps": result.steps,
         "stopped_by_limit": result.stopped_by_limit,
+        "mode": mode.name,
         "transcript": result.transcript,
         "usage": result.usage,
         "usage_text": format_usage(result.usage) if result.usage else "",

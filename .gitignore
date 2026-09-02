@@ -13,4 +13,4 @@ build/
 .ruff_cache/
 run_logs/
 *.log
-
+*.bundle

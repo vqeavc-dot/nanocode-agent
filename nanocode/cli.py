@@ -10,6 +10,7 @@ from pathlib import Path
 from .agent import AgentResult, CodingAgent
 from .config import load_config
 from .llm import OpenAICompatibleLLM
+from .modes import resolve_mode
 from .tools import LocalTools
 from .verifier import inspect_transcript
 
@@ -23,6 +24,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--log-dir", default="run_logs", help="Directory for Markdown run logs")
     parser.add_argument("--no-log", action="store_true", help="Disable writing a run log")
     parser.add_argument("--confirm-actions", action="store_true", help="Ask before executing shell commands")
+    parser.add_argument("--mode", choices=["review", "trust"], default="review", help="Run in review mode or trust mode")
     parser.add_argument("--no-diff-summary", action="store_true", help="Do not print git diff summary after a run")
     parser.add_argument("--auto-commit", action="store_true", help="Commit workspace changes after a successful, tested run")
     parser.add_argument("--commit-message", default=None, help="Commit message used with --auto-commit")
@@ -38,19 +40,22 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     workspace = config.workspace if args.workspace == "." else (config.workspace / args.workspace).resolve()
-    tools = LocalTools(workspace, confirm_commands=args.confirm_actions)
+    mode = resolve_mode(args.mode)
+    confirm_commands = args.confirm_actions or mode.confirm_commands
+    tools = LocalTools(workspace, confirm_commands=confirm_commands)
     model = OpenAICompatibleLLM(config.api_key, config.base_url, config.model)
     agent = CodingAgent(
         model=model,
         tools=tools,
         max_steps=args.max_steps or config.max_steps,
         verbose=args.verbose,
+        mode=mode,
     )
     result = agent.run(args.task)
     diff_summary = "" if args.no_diff_summary else collect_git_diff_summary(workspace)
     commit_summary = ""
     if args.auto_commit:
-        commit_summary = auto_commit_changes(workspace, result, args.commit_message)
+        commit_summary = auto_commit_changes(workspace, result, args.commit_message, allow_auto_commit=mode.allow_auto_commit)
         if not args.no_diff_summary:
             diff_summary = collect_git_diff_summary(workspace)
     log_path = None if args.no_log else _write_run_log(args.log_dir, args.task, result, diff_summary, commit_summary)
@@ -92,7 +97,14 @@ def collect_git_diff_summary(workspace: Path) -> str:
     return f"Git diff summary:\n{stat.stdout.strip()}\nChanged files: {changed}"
 
 
-def auto_commit_changes(workspace: Path, result: AgentResult, message: str | None = None) -> str:
+def auto_commit_changes(
+    workspace: Path,
+    result: AgentResult,
+    message: str | None = None,
+    allow_auto_commit: bool = True,
+) -> str:
+    if not allow_auto_commit:
+        return "Auto commit skipped: review mode does not allow automatic commits. Re-run with --mode trust if desired."
     if result.stopped_by_limit:
         return "Auto commit skipped: agent stopped by step limit."
     if not _run_looked_tested(result):

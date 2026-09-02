@@ -51,7 +51,8 @@ def test_agent_loop_runs_tools_until_final_answer(tmp_path: Path):
     assert not result.stopped_by_limit
     assert result.final == "Changed value to 2 and syntax check passed."
     assert "return 2" in (tmp_path / "app.py").read_text(encoding="utf-8")
-    assert result.transcript[0].startswith("[plan]")
+    assert result.transcript[0].startswith("[mode]")
+    assert result.transcript[1].startswith("[plan]")
 
 
 def test_agent_verbose_records_each_tool_event(tmp_path: Path, capsys):

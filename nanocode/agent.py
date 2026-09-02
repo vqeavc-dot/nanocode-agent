@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Protocol
 
 from .memory import Memory
+from .modes import ModePolicy, resolve_mode
 from .planner import LightweightPlanner
 from .prompts import SYSTEM_PROMPT
 from .tools import LocalTools
@@ -35,6 +36,7 @@ class CodingAgent:
         verbose: bool = False,
         event_sink: Callable[[str], None] | None = None,
         planner: LightweightPlanner | None = None,
+        mode: str | ModePolicy = "review",
     ):
         self.model = model
         self.tools = tools
@@ -44,15 +46,18 @@ class CodingAgent:
         self.event_sink = event_sink
         self.usage: dict[str, int] = {}
         self.planner = planner or LightweightPlanner()
+        self.mode = mode if isinstance(mode, ModePolicy) else resolve_mode(mode)
 
     def run(self, task: str) -> AgentResult:
         plan = self.planner.build(task)
         base_messages: list[dict[str, Any]] = [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": task},
+            {"role": "user", "content": self.mode.render()},
             {"role": "user", "content": f"Initial lightweight plan:\n{plan.render()}"},
         ]
         transcript: list[str] = []
+        self._record(transcript, f"[mode]\n{self.mode.render()}")
         self._record(transcript, f"[plan]\n{plan.render()}")
 
         for step in range(1, self.max_steps + 1):
