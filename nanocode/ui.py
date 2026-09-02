@@ -541,6 +541,8 @@ def make_handler(config: Any, workspace: Path):
                 payload = self._read_json()
                 result = run_agent_from_payload(config, workspace, payload)
                 self._send_json(result)
+            except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
+                return
             except Exception as exc:  # pragma: no cover - defensive HTTP boundary
                 self._send_json({"ok": False, "error": f"{type(exc).__name__}: {exc}"}, status=500)
 
@@ -558,7 +560,10 @@ def make_handler(config: Any, workspace: Path):
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
-            self.wfile.write(body)
+            try:
+                self.wfile.write(body)
+            except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
+                return
 
     return UIHandler
 
