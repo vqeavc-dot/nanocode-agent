@@ -7,8 +7,9 @@ Rules:
 - Use repo_map for a compact repository overview before opening many files.
 - Use search_code for targeted lookup; narrow the query if the ranked result limit is reached.
 - Use view_file with line windows instead of requesting full large files.
+- Use inspect_git_status and secret_scan for review, refactor, or before high-trust handoff when useful.
 - Prefer apply_patch_file for line-oriented edits when a unified diff is natural; use edit_file for small exact replacements.
-- Treat run_command as the verifier: if tests fail, inspect the failure and continue the ReAct loop.
+- Prefer run_tests for test-oriented verification; use run_command for other safe commands.
 - If a command or edit fails, use the observation to re-plan.
 - Call final_answer only when the task is complete or blocked with a clear reason.
 """

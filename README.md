@@ -59,23 +59,34 @@ After recording the final MP4, create the required submission zip:
 
 - Agent Loop: the ReAct loop calls the model, parses tool calls, executes local tools, records observations, and stops on `final_answer` or a step limit.
 - Review/Trust Modes: review mode is conservative by default; trust mode must be explicitly selected before automatic commits are allowed.
-- Lightweight Planner: a deterministic planner writes an initial plan into the prompt, transcript, run log, and UI before the ReAct loop starts.
-- Memory: recent observations stay intact while older observations are compressed into summaries.
+- Task Profile: `TaskClassifier` labels the request as explanation, bug fix, feature, test, review, or refactor and assigns a risk level.
+- Skill Registry: task profiles map to skill-like workflows such as code question, bug fix, feature change, test work, review, and safe refactor.
+- Lightweight Planner: a deterministic planner selects a skill and writes an initial plan into the prompt, transcript, run log, and UI before the ReAct loop starts.
+- Memory: recent observations stay intact while older observations are compressed into summaries; selected files, task profile, plan, and verification status are also tracked.
 - Tool Registry: skill-like tools are described in a catalog and exposed as OpenAI-compatible tool schemas.
 - RepoMap: compact repository summaries include symbols, imports, references, def/ref dependencies, and lightweight PageRank-style scores.
 - Patch Editor: `apply_patch_file` applies single-file unified diffs with context validation and Python rollback checks.
-- Sandbox: file access is limited to the workspace and risky shell commands are blocked.
-- Verifier: `run_command` observations are inspected for test signals; `--auto-commit` is allowed only after successful tests are observed.
-- Logger/UI: CLI and web UI show plan, steps, tool calls, observations, verification signals, token usage, run logs, and git diff summaries.
+- Safety Rails: file access is limited to the workspace, risky shell commands are blocked, tools carry risk levels, and secret scans avoid printing secret values.
+- Verifier/Reflection: test observations are inspected for success signals; failed tools are classified by `FailureAnalyzer` to guide the next ReAct step.
+- Logger/UI: CLI and web UI show mode, task profile, skill, plan, steps, tool calls, observations, reflection, verification, token usage, run logs, and git diff summaries.
 
 ## Tool Catalog
 
 | Stage | Tools |
 | --- | --- |
-| Context | `repo_map`, `search_code`, `list_files`, `list_symbols`, `view_file` |
+| Context | `repo_map`, `search_code`, `list_files`, `list_symbols`, `view_file`, `inspect_git_status` |
 | Edit | `apply_patch_file`, `edit_file`, `write_file` |
-| Verify | `run_command` |
+| Verify | `run_tests`, `run_command` |
+| Safety | `secret_scan` |
 | Finish | `final_answer` |
+
+## Design Route
+
+The project follows a seven-step landing route rather than starting from a framework: job description, minimal toolbox, skill-like workflows, planning/reflection, memory, safety rails, and evaluation. See `docs/agent_design.md` for the full design rationale.
+
+## Evaluation
+
+`evals/coding_agent_cases.json` contains scenario and red-team cases. They describe expected tool traces and safety expectations such as blocking workspace escape and destructive commands. This complements unit tests by making the agent's behavior auditable.
 
 ## Review and Trust
 

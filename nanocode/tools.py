@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .repo_map import DEFAULT_IGNORE_DIRS, RepoMap
+from .risk import decide_tool_risk, risk_for_tool
 from .sandbox import Sandbox, SandboxError, assert_command_safe
 
 
@@ -17,6 +18,10 @@ MAX_OUTPUT_CHARS = 6000
 MAX_SEARCH_FILE_BYTES = 200_000
 MAX_MATCHES_PER_FILE = 5
 HUNK_HEADER_RE = re.compile(r"@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@")
+SECRET_RE = re.compile(
+    r"(sk-[A-Za-z0-9_-]{20,}|api[_-]?key\s*=\s*[A-Za-z0-9_-]{20,}|authorization:\s*bearer\s+[A-Za-z0-9_-]{20,})",
+    re.IGNORECASE,
+)
 
 
 class ToolExecutionError(RuntimeError):
@@ -66,18 +71,22 @@ class LocalTools:
         ]
 
     def tool_catalog(self) -> list[dict[str, Any]]:
-        return [
+        specs = [
             {"name": "list_files", "stage": "context", "description": "List files and directories in a workspace path.", "properties": {"path": "string", "limit": "integer"}, "required": []},
             {"name": "search_code", "stage": "context", "description": "Search text in workspace files and return ranked concise matches.", "properties": {"query": "string", "path": "string", "limit": "integer"}, "required": ["query"]},
             {"name": "list_symbols", "stage": "context", "description": "List Python classes and functions with line numbers for code-structure analysis.", "properties": {"path": "string", "limit": "integer"}, "required": []},
             {"name": "repo_map", "stage": "context", "description": "Build a compact repository map with imports, symbols, references, and dependency scores.", "properties": {"path": "string", "max_files": "integer", "max_chars": "integer"}, "required": []},
             {"name": "view_file", "stage": "context", "description": "View a numbered line window from a file.", "properties": {"path": "string", "start_line": "integer", "limit": "integer"}, "required": ["path"]},
+            {"name": "inspect_git_status", "stage": "context", "description": "Inspect git branch, changed files, and recent commits without modifying the repository.", "properties": {}, "required": []},
             {"name": "edit_file", "stage": "edit", "description": "Replace exactly one old_text occurrence in a file.", "properties": {"path": "string", "old_text": "string", "new_text": "string"}, "required": ["path", "old_text", "new_text"]},
             {"name": "write_file", "stage": "edit", "description": "Create or overwrite a workspace file.", "properties": {"path": "string", "content": "string"}, "required": ["path", "content"]},
             {"name": "apply_patch_file", "stage": "edit", "description": "Apply a single-file unified diff patch with context validation and rollback.", "properties": {"path": "string", "patch": "string"}, "required": ["path", "patch"]},
             {"name": "run_command", "stage": "verify", "description": "Run a safe shell command in the workspace.", "properties": {"command": "string", "timeout": "integer"}, "required": ["command"]},
+            {"name": "run_tests", "stage": "verify", "description": "Run a bounded test command, defaulting to python -m pytest.", "properties": {"command": "string", "timeout": "integer"}, "required": []},
+            {"name": "secret_scan", "stage": "safety", "description": "Scan workspace text files for likely committed or local secrets without printing secret values.", "properties": {"path": "string", "limit": "integer"}, "required": []},
             {"name": "final_answer", "stage": "finish", "description": "Finish the task with a concise summary.", "properties": {"summary": "string"}, "required": ["summary"]},
         ]
+        return [{**spec, "risk": risk_for_tool(spec["name"])} for spec in specs]
 
     def run(self, name: str, arguments: dict[str, Any]) -> ToolResult:
         table: dict[str, Callable[..., ToolResult]] = {
@@ -86,14 +95,22 @@ class LocalTools:
             "list_symbols": self.list_symbols,
             "repo_map": self.repo_map,
             "view_file": self.view_file,
+            "inspect_git_status": self.inspect_git_status,
             "edit_file": self.edit_file,
             "write_file": self.write_file,
             "apply_patch_file": self.apply_patch_file,
             "run_command": self.run_command,
+            "run_tests": self.run_tests,
+            "secret_scan": self.secret_scan,
             "final_answer": self.final_answer,
         }
         if name not in table:
             return ToolResult(False, f"Unknown tool: {name}")
+        decision = decide_tool_risk(name, _mode_for_confirm(self.confirm_commands))
+        if not decision.allowed:
+            return ToolResult(False, decision.reason)
+        if name != "run_command" and decision.requires_confirmation and self.confirm_commands and not self.confirmer(f"{name} {arguments}"):
+            return ToolResult(False, f"Tool action rejected by user confirmation: {name}")
         try:
             return table[name](**arguments)
         except TypeError as exc:
@@ -198,6 +215,20 @@ class LocalTools:
         footer = f"[{start - 1} lines above, {max(0, total - end)} lines below]"
         return ToolResult(True, "\n".join([header, *numbered, footer]))
 
+    def inspect_git_status(self) -> ToolResult:
+        if not (self.workspace / ".git").exists():
+            return ToolResult(True, "Not a Git repository")
+        commands = [
+            ["git", "status", "--short", "--branch"],
+            ["git", "log", "--oneline", "-3"],
+        ]
+        chunks = []
+        for command in commands:
+            completed = subprocess.run(command, cwd=self.workspace, text=True, capture_output=True, timeout=10)
+            label = " ".join(command)
+            chunks.append(f"$ {label}\n{completed.stdout.strip() or completed.stderr.strip() or '(empty)'}")
+        return ToolResult(True, "\n\n".join(chunks))
+
     def edit_file(self, path: str, old_text: str, new_text: str) -> ToolResult:
         target = self.sandbox.resolve_path(path)
         if not target.exists():
@@ -269,6 +300,32 @@ class LocalTools:
         )
         return ToolResult(completed.returncode == 0, content, {"exit_code": completed.returncode})
 
+    def run_tests(self, command: str = "python -m pytest", timeout: int = 60) -> ToolResult:
+        if "test" not in command.lower() and "pytest" not in command.lower():
+            return ToolResult(False, "run_tests only accepts test-oriented commands")
+        return self.run_command(command, timeout)
+
+    def secret_scan(self, path: str = ".", limit: int = 80) -> ToolResult:
+        root = self.sandbox.resolve_path(path)
+        files = [root] if root.is_file() else [p for p in root.rglob("*") if p.is_file()]
+        findings: list[str] = []
+        for file_path in files:
+            if _should_skip_path(file_path, self.workspace) or _too_large(file_path):
+                continue
+            try:
+                lines = file_path.read_text(encoding="utf-8").splitlines()
+            except UnicodeDecodeError:
+                continue
+            rel = file_path.relative_to(self.workspace).as_posix()
+            for line_no, line in enumerate(lines, start=1):
+                if SECRET_RE.search(line) and "replace_with_your_api_key" not in line:
+                    findings.append(f"{rel}:{line_no}: likely secret pattern found")
+                    if len(findings) >= limit:
+                        return ToolResult(False, "\n".join(findings) + "\n... secret scan limit reached")
+        if findings:
+            return ToolResult(False, "\n".join(findings), {"findings": len(findings)})
+        return ToolResult(True, "No likely secrets found", {"findings": 0})
+
     def final_answer(self, summary: str) -> ToolResult:
         return ToolResult(True, summary, {"final": True})
 
@@ -303,6 +360,12 @@ def _schema(name: str, description: str, properties: dict[str, str], required: l
             },
         },
     }
+
+
+def _mode_for_confirm(confirm_commands: bool):
+    from .modes import resolve_mode
+
+    return resolve_mode("review" if confirm_commands else "trust")
 
 
 def _collect_search_matches(root: Path, workspace: Path, query: str) -> list[SearchMatch]:

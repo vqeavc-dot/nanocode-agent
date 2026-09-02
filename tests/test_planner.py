@@ -7,4 +7,6 @@ def test_planner_mentions_patch_and_tests_for_code_change():
 
     assert "apply_patch_file" in rendered
     assert "test" in rendered.lower()
-    assert rendered.startswith("1. ")
+    assert rendered.startswith("Task profile:")
+    assert "Selected skill:" in rendered
+    assert "\n1. " in rendered

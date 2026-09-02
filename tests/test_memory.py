@@ -21,3 +21,17 @@ def test_memory_summary_truncates_old_content():
     assert content.endswith("...")
 
 
+def test_memory_tracks_context_decisions():
+    memory = Memory()
+    memory.set_task_profile("Task profile: type=feature")
+    memory.set_plan("Plan: inspect then test")
+    memory.note_file("src/app.py")
+    memory.set_verification("Verifier: successful test command observed.")
+
+    rendered = "\n".join(message["content"] for message in memory.as_messages())
+
+    assert "Task profile" in rendered
+    assert "src/app.py" in rendered
+    assert "successful test" in rendered
+
+

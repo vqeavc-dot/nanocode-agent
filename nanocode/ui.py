@@ -44,9 +44,10 @@ HTML = r"""<!doctype html>
     .stat b { display: block; font-size: 18px; }
     .stat span { color: var(--muted); font-size: 12px; }
     .event { border: 1px solid var(--line); border-left: 4px solid #98a2b3; border-radius: 6px; padding: 10px; margin-bottom: 10px; background: #fff; }
-    .event.mode { border-left-color: #475467; }
+    .event.mode, .event.profile, .event.skill { border-left-color: #475467; }
     .event.tool_call { border-left-color: var(--accent); }
     .event.observation { border-left-color: var(--ok); }
+    .event.reflect, .event.verify { border-left-color: #b54708; }
     .event.final { border-left-color: var(--violet); }
     .event.limit, .event.error { border-left-color: var(--bad); }
     .event .type { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
@@ -114,7 +115,10 @@ const modeOutEl = document.getElementById('modeOut');
 
 function classify(event) {
   if (event.startsWith('[mode]')) return 'mode';
+  if (event.startsWith('[profile]')) return 'profile';
+  if (event.startsWith('[skill]')) return 'skill';
   if (event.startsWith('[plan]')) return 'plan';
+  if (event.startsWith('[reflect]')) return 'reflect';
   if (event.startsWith('[verify]')) return 'verify';
   if (event.includes('tool_call')) return 'tool_call';
   if (event.includes('observation')) return 'observation';

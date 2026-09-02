@@ -6,6 +6,7 @@ from typing import Any, Callable, Protocol
 
 from .memory import Memory
 from .modes import ModePolicy, resolve_mode
+from .failure import analyze_failure
 from .planner import LightweightPlanner
 from .prompts import SYSTEM_PROMPT
 from .tools import LocalTools
@@ -50,6 +51,8 @@ class CodingAgent:
 
     def run(self, task: str) -> AgentResult:
         plan = self.planner.build(task)
+        self.memory.set_task_profile(plan.profile.render())
+        self.memory.set_plan(plan.render())
         base_messages: list[dict[str, Any]] = [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": task},
@@ -58,6 +61,8 @@ class CodingAgent:
         ]
         transcript: list[str] = []
         self._record(transcript, f"[mode]\n{self.mode.render()}")
+        self._record(transcript, f"[profile]\n{plan.profile.render()}")
+        self._record(transcript, f"[skill]\n{plan.skill.render()}")
         self._record(transcript, f"[plan]\n{plan.render()}")
 
         for step in range(1, self.max_steps + 1):
@@ -91,9 +96,15 @@ class CodingAgent:
                 self._record(transcript, f"[step {step}] tool_call {name} args={_safe_json(args)}")
                 result = self.tools.run(name, args)
                 self.memory.add(name, result.to_json(), ok=result.ok)
+                if isinstance(args.get("path"), str):
+                    self.memory.note_file(args["path"])
                 self._record(transcript, f"[step {step}] observation {name} ok={result.ok}: {_truncate_text(result.content)}")
-                if name == "run_command":
+                if not result.ok:
+                    failure = analyze_failure(name, result.content)
+                    self._record(transcript, f"[reflect] {failure.render()}")
+                if name in {"run_command", "run_tests"}:
                     signal = inspect_transcript(transcript)
+                    self.memory.set_verification(signal.render())
                     self._record(transcript, f"[verify] {signal.render()}")
                 if name == "final_answer" and result.ok:
                     return AgentResult(final=result.content, steps=step, transcript=transcript, usage=dict(self.usage))

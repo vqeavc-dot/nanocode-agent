@@ -216,4 +216,30 @@ def test_tool_catalog_matches_schema_names(tmp_path: Path):
     schema_names = [item["function"]["name"] for item in tools.schemas()]
 
     assert catalog_names == schema_names
-    assert {item["stage"] for item in tools.tool_catalog()} >= {"context", "edit", "verify", "finish"}
+    assert {item["stage"] for item in tools.tool_catalog()} >= {"context", "edit", "verify", "safety", "finish"}
+    assert all("risk" in item for item in tools.tool_catalog())
+
+
+def test_inspect_git_status_outside_git_is_safe(tmp_path: Path):
+    result = LocalTools(tmp_path).inspect_git_status()
+
+    assert result.ok
+    assert "Not a Git repository" in result.content
+
+
+def test_run_tests_rejects_non_test_command(tmp_path: Path):
+    result = LocalTools(tmp_path).run_tests("python --version")
+
+    assert not result.ok
+    assert "test-oriented" in result.content
+
+
+def test_secret_scan_does_not_print_secret_value(tmp_path: Path):
+    fake_secret = "sk-" + "abcdefghijklmnopqrstuvwxyz"
+    (tmp_path / ".env").write_text(f"NANOCODE_API_KEY={fake_secret}\n", encoding="utf-8")
+
+    result = LocalTools(tmp_path).secret_scan(".")
+
+    assert not result.ok
+    assert "likely secret" in result.content
+    assert fake_secret not in result.content

@@ -34,5 +34,9 @@ def test_ui_contains_preset_buttons_and_metrics():
     assert "<option value=\"trust\">Trust</option>" in HTML
     assert "countPlans" in HTML
     assert "[verify]" in HTML
+    assert "[mode]" in HTML
+    assert "[profile]" in HTML
+    assert "[skill]" in HTML
+    assert "[reflect]" in HTML
     assert "countTools" in HTML
     assert "Git diff summary" in HTML
