@@ -9,6 +9,7 @@ from .modes import ModePolicy, resolve_mode
 from .failure import analyze_failure
 from .planner import LightweightPlanner
 from .prompts import SYSTEM_PROMPT
+from .security import redact_secrets
 from .tools import LocalTools
 from .verifier import inspect_transcript
 
@@ -120,6 +121,7 @@ class CodingAgent:
         )
 
     def _record(self, transcript: list[str], event: str) -> None:
+        event = redact_secrets(event)
         transcript.append(event)
         if self.verbose:
             print(event)

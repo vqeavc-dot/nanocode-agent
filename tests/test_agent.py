@@ -80,3 +80,16 @@ def test_agent_aggregates_token_usage(tmp_path: Path):
     assert result.usage["prompt_tokens"] == 40
     assert result.usage["completion_tokens"] == 20
     assert result.usage["total_tokens"] == 60
+
+
+def test_agent_transcript_redacts_secret_like_content(tmp_path: Path):
+    class SecretModel:
+        def chat(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]]):
+            fake_secret = "sk-" + "secretsecretsecret"
+            return _response("final_answer", {"summary": f"NANOCODE_API_KEY={fake_secret}"})
+
+    agent = CodingAgent(model=SecretModel(), tools=LocalTools(tmp_path), max_steps=1)
+
+    result = agent.run("finish")
+
+    assert "sk-secret" not in "\n".join(result.transcript)

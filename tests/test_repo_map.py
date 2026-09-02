@@ -71,3 +71,14 @@ def test_repo_map_ranks_referenced_file_above_caller(tmp_path: Path):
     assert "ranking=lightweight_def_ref_pagerank" in rendered
     assert service_index < caller_index
     assert "depends_on: service.py" in rendered
+
+
+def test_repo_map_skips_protected_env_files(tmp_path: Path):
+    fake_secret = "sk-" + "secretsecretsecret"
+    (tmp_path / ".env").write_text(f"NANOCODE_API_KEY={fake_secret}\n", encoding="utf-8")
+    (tmp_path / "app.py").write_text("def value():\n    return 1\n", encoding="utf-8")
+
+    rendered = RepoMap(tmp_path).build(".")
+
+    assert ".env" not in rendered
+    assert "app.py" in rendered

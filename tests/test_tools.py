@@ -243,3 +243,25 @@ def test_secret_scan_does_not_print_secret_value(tmp_path: Path):
     assert not result.ok
     assert "likely secret" in result.content
     assert fake_secret not in result.content
+
+
+def test_view_file_refuses_protected_secret_file(tmp_path: Path):
+    fake_secret = "sk-" + "secretsecretsecret"
+    (tmp_path / ".env").write_text(f"NANOCODE_API_KEY={fake_secret}\n", encoding="utf-8")
+
+    result = LocalTools(tmp_path).view_file(".env")
+
+    assert not result.ok
+    assert "protected secret file" in result.content
+    assert "sk-secret" not in result.content
+
+
+def test_search_code_skips_protected_secret_file(tmp_path: Path):
+    fake_secret = "sk-" + "secretsecretsecret"
+    (tmp_path / ".env").write_text(f"NANOCODE_API_KEY={fake_secret}\n", encoding="utf-8")
+    (tmp_path / "app.py").write_text("value = 'safe'\n", encoding="utf-8")
+
+    result = LocalTools(tmp_path).search_code("sk-secret")
+
+    assert result.ok
+    assert result.content == "No matches"

@@ -5,6 +5,8 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .security import is_protected_path
+
 
 DEFAULT_IGNORE_DIRS = {
     ".git",
@@ -96,6 +98,8 @@ class RepoMap:
     def _iter_source_files(self, root: Path):
         for path in sorted(root.rglob("*"), key=lambda p: p.as_posix().lower()):
             if not path.is_file():
+                continue
+            if is_protected_path(path):
                 continue
             if self._is_ignored(path):
                 continue

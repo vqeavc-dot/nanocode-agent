@@ -12,6 +12,7 @@ from typing import Any, Callable
 from .repo_map import DEFAULT_IGNORE_DIRS, RepoMap
 from .risk import decide_tool_risk, risk_for_tool
 from .sandbox import Sandbox, SandboxError, assert_command_safe
+from .security import is_protected_path, redact_secrets
 
 
 MAX_OUTPUT_CHARS = 6000
@@ -19,7 +20,7 @@ MAX_SEARCH_FILE_BYTES = 200_000
 MAX_MATCHES_PER_FILE = 5
 HUNK_HEADER_RE = re.compile(r"@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@")
 SECRET_RE = re.compile(
-    r"(sk-[A-Za-z0-9_-]{20,}|api[_-]?key\s*=\s*[A-Za-z0-9_-]{20,}|authorization:\s*bearer\s+[A-Za-z0-9_-]{20,})",
+    r"(sk-[A-Za-z0-9_-]{8,}|(?:[A-Z0-9_]*(?:API|TOKEN|SECRET|KEY)[A-Z0-9_]*\s*=\s*['\"]?(?:sk-[A-Za-z0-9_-]{8,}|[A-Za-z0-9_-]{24,})['\"]?)|authorization:\s*bearer\s+[A-Za-z0-9_.-]{8,})",
     re.IGNORECASE,
 )
 
@@ -112,7 +113,8 @@ class LocalTools:
         if name != "run_command" and decision.requires_confirmation and self.confirm_commands and not self.confirmer(f"{name} {arguments}"):
             return ToolResult(False, f"Tool action rejected by user confirmation: {name}")
         try:
-            return table[name](**arguments)
+            result = table[name](**arguments)
+            return ToolResult(result.ok, redact_secrets(result.content), result.data)
         except TypeError as exc:
             return ToolResult(False, f"Invalid arguments for {name}: {exc}")
         except SandboxError as exc:
@@ -133,6 +135,8 @@ class LocalTools:
         shown = entries[: max(1, limit)]
         lines = []
         for item in shown:
+            if is_protected_path(item):
+                continue
             rel = item.relative_to(self.workspace)
             kind = "dir " if item.is_dir() else "file"
             lines.append(f"{kind} {rel.as_posix()}")
@@ -203,6 +207,8 @@ class LocalTools:
             return ToolResult(False, f"File does not exist: {path}")
         if not target.is_file():
             return ToolResult(False, f"Path is not a file: {path}")
+        if is_protected_path(target):
+            return ToolResult(False, f"Refusing to display protected secret file: {Path(path).as_posix()}")
 
         lines = target.read_text(encoding="utf-8").splitlines()
         total = len(lines)
@@ -374,7 +380,7 @@ def _collect_search_matches(root: Path, workspace: Path, query: str) -> list[Sea
     matches: list[SearchMatch] = []
     per_file_counts: dict[str, int] = {}
     for file_path in files:
-        if _should_skip_path(file_path, workspace) or _too_large(file_path):
+        if is_protected_path(file_path) or _should_skip_path(file_path, workspace) or _too_large(file_path):
             continue
         try:
             lines = file_path.read_text(encoding="utf-8").splitlines()
